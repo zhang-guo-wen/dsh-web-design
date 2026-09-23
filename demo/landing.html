@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Northwind — 数据分析平台</title>
+  <!-- 这个注释用来验证：预览里改样式后，写回原文件时注释必须原样保留 -->
+  <style>
+    :root {
+      --ink: #14181f;
+      --muted: #5c6673;
+      --line: #e3e7ec;
+      --bg: #ffffff;
+      --surface: #f7f9fb;
+      --accent: #2f5fe0;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      font-size: 16px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrap {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    /* ---- 顶部导航 ---- */
+    header.site {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(255, 255, 255, 0.86);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+    }
+
+    .brand .mark {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      background: var(--accent);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    nav.links {
+      display: flex;
+      gap: 26px;
+    }
+
+    nav.links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    nav.links a:hover { color: var(--ink); }
+
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      height: 36px;
+      padding: 0 16px;
+      border-radius: 8px;
+      background: var(--ink);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 550;
+      text-decoration: none;
+    }
+
+    /* ---- Hero ---- */
+    .hero {
+      padding: 92px 0 76px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      display: inline-block;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 650;
+      margin-bottom: 18px;
+    }
+
+    h1.headline {
+      margin: 0 0 20px;
+      font-size: 52px;
+      line-height: 1.1;
+      letter-spacing: -0.028em;
+      font-weight: 700;
+      max-width: 17ch;
+    }
+
+    p.sub {
+      margin: 0 0 32px;
+      font-size: 18px;
+      color: var(--muted);
+      max-width: 56ch;
+    }
+
+    .actions { display: flex; gap: 12px; align-items: center; }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      height: 44px;
+      padding: 0 22px;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      height: 44px;
+      padding: 0 20px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 550;
+      text-decoration: none;
+    }
+
+    /* ---- 数据条 ---- */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .stat {
+      padding: 30px 0;
+      border-right: 1px solid var(--line);
+    }
+
+    .stat:last-child { border-right: 0; }
+
+    .stat .value {
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .stat .label {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* ---- 特性 ---- */
+    section.features { padding: 76px 0; }
+
+    .section-head { margin-bottom: 44px; }
+
+    h2.section-title {
+      margin: 0 0 10px;
+      font-size: 32px;
+      letter-spacing: -0.02em;
+      font-weight: 700;
+    }
+
+    .section-head p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 54ch;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 22px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 26px 24px;
+      background: var(--bg);
+    }
+
+    .card .icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      background: var(--surface);
+      display: grid;
+      place-items: center;
+      margin-bottom: 16px;
+      font-size: 17px;
+    }
+
+    .card h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+    }
+
+    .card p {
+      margin: 0;
+      font-size: 14.5px;
+      color: var(--muted);
+    }
+
+    /* ---- 报价表 ---- */
+    section.pricing {
+      padding: 76px 0;
+      background: var(--surface);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    table.plans {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    table.plans th,
+    table.plans td {
+      text-align: left;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+      font-size: 14.5px;
+    }
+
+    table.plans th {
+      background: var(--surface);
+      font-weight: 650;
+      font-size: 13px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    table.plans tr:last-child td { border-bottom: 0; }
+
+    .price { font-weight: 700; font-size: 17px; }
+
+    /* ---- 表单 ---- */
+    section.contact { padding: 76px 0; }
+
+    form.signup {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      max-width: 620px;
+    }
+
+    .field { display: flex; flex-direction: column; gap: 6px; }
+
+    .field.full { grid-column: 1 / -1; }
+
+    label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    input, textarea {
+      font: inherit;
+      font-size: 14.5px;
+      padding: 11px 13px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    input:focus, textarea:focus {
+      outline: 2px solid rgba(47, 95, 224, 0.25);
+      border-color: var(--accent);
+    }
+
+    button.submit {
+      grid-column: 1 / -1;
+      justify-self: start;
+      height: 44px;
+      padding: 0 24px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* ---- 页脚 ---- */
+    footer.site {
+      border-top: 1px solid var(--line);
+      padding: 32px 0;
+      color: var(--muted);
+      font-size: 13.5px;
+    }
+
+    .foot {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    @media (max-width: 820px) {
+      h1.headline { font-size: 38px; }
+      .stats, .grid, form.signup { grid-template-columns: 1fr; }
+      .stat { border-right: 0; border-bottom: 1px solid var(--line); }
+      nav.links { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site">
+    <div class="wrap nav">
+      <div class="brand">
+        <span class="mark">N</span>
+        <span>Northwind</span>
+      </div>
+      <nav class="links">
+        <a href="#features">功能</a>
+        <a href="#pricing">定价</a>
+        <a href="#contact">联系</a>
+      </nav>
+      <a class="cta" href="#contact">免费试用</a>
+    </div>
+  </header>
+
+  <main>
+
+    <section class="hero">
+      <div class="wrap">
+        <span class="eyebrow">¥199 / 人 / 1</span>
+        <h1 class="headline">让每一个团队都能读懂自己的数据</h1>
+        <p class="sub">
+          连接数据源、建模、出图、分享，全部在一个工作台里完成。不需要数据工程师陪跑，
+          业务同学自己就能把问题问到答案。
+        </p>
+        <div class="actions">
+          <a class="btn-primary" href="#contact">开始使用</a>
+          <a class="btn-ghost" href="#features">看看功能</a>
+        </div>
+      </div>
+    </section>
+
+    <div class="wrap">
+      <div class="stats">
+        <div class="stat">
+          <div class="value">2,400+</div>
+          <div class="label">团队正在使用</div>
+        </div>
+        <div class="stat">
+          <div class="value">18 分钟</div>
+          <div class="label">平均首次出图耗时</div>
+        </div>
+        <div class="stat">
+          <div class="value">99.98%</div>
+          <div class="label">过去 12 个月可用性</div>
+        </div>
+      </div>
+    </div>
+
+    <section class="features" id="features">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 class="section-title">三件事做到最好</h2>
+          <p>我们把功能砍到只剩真正每天会用到的部分，然后把它们做扎实。</p>
+        </div>
+        <div class="grid">
+          <article class="card">
+            <div class="icon">◎</div>
+            <h3>一键连接</h3>
+            <p>Postgres、MySQL、BigQuery、飞书多维表都支持，授权后自动同步表结构，改表也不用重新配。</p>
+          </article>
+          <article class="card">
+            <div class="icon">▤</div>
+            <h3>拖拽建模</h3>
+            <p>用自然语言描述口径，平台生成可复用的指标定义，所有图表共享同一套算法，不会再对不上数。</p>
+          </article>
+          <article class="card">
+            <div class="icon">◈</div>
+            <h3>随时分享</h3>
+            <p>看板可以嵌进企业微信、钉钉或任意网页，权限跟着组织架构走，人员变动自动收敛。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="pricing" id="pricing">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 class="section-title">定价</h2>
+          <p>按席位计费，没有额外的一次性实施费。</p>
+        </div>
+        <table class="plans">
+          <thead>
+            <tr>
+              <th>方案</th>
+              <th>价格</th>
+              <th>数据源</th>
+              <th>适合</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>基础版</td>
+              <td class="price">¥199 / 人 / 月</td>
+              <td>3 个</td>
+              <td>刚起步的小团队</td>
+            </tr>
+            <tr>
+              <td>专业版</td>
+              <td class="price">¥499 / 人 / 月</td>
+              <td>不限</td>
+              <td>有专职分析师的公司</td>
+            </tr>
+            <tr>
+              <td>企业版</td>
+              <td class="price">按需报价</td>
+              <td>不限</td>
+              <td>需要私有化部署</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="contact" id="contact">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 class="section-title">申请试用</h2>
+          <p>留下联系方式，我们会在一个工作日内开通账号。</p>
+        </div>
+        <form class="signup">
+          <div class="field">
+            <label for="name">姓名</label>
+            <input id="name" name="name" type="text" placeholder="张三">
+          </div>
+          <div class="field">
+            <label for="company">公司</label>
+            <input id="company" name="company" type="text" placeholder="某某科技">
+          </div>
+          <div class="field full">
+            <label for="email">工作邮箱</label>
+            <input id="email" name="email" type="email" placeholder="you@company.com">
+          </div>
+          <div class="field full">
+            <label for="note">想解决什么问题？</label>
+            <textarea id="note" name="note" rows="3" placeholder="选填"></textarea>
+          </div>
+          <button class="submit" type="button">提交申请</button>
+        </form>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site">
+    <div class="wrap foot">
+      <span>© 2026 Northwind Analytics</span>
+      <span>示例页面 · 数据均为演示用途</span>
+    </div>
+  </footer>
+
+</body>
+</html>

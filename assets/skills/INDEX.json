@@ -1,0 +1,332 @@
+[
+  {
+    "name": "artifacts-builder",
+    "group": "web-artifacts",
+    "folder": "artifacts-builder"
+  },
+  {
+    "name": "frontend-design",
+    "group": "web-artifacts",
+    "folder": "frontend-design"
+  },
+  {
+    "name": "frontend-dev",
+    "group": "web-artifacts",
+    "folder": "frontend-dev"
+  },
+  {
+    "name": "image-to-code",
+    "group": "web-artifacts",
+    "folder": "image-to-code-skill"
+  },
+  {
+    "name": "web-artifacts-builder",
+    "group": "web-artifacts",
+    "folder": "web-artifacts-builder"
+  },
+  {
+    "name": "apple-hig",
+    "group": "design-systems",
+    "folder": "apple-hig"
+  },
+  {
+    "name": "brand-guidelines",
+    "group": "design-systems",
+    "folder": "brand-guidelines"
+  },
+  {
+    "name": "color-expert",
+    "group": "design-systems",
+    "folder": "color-expert"
+  },
+  {
+    "name": "design-md",
+    "group": "design-systems",
+    "folder": "design-md"
+  },
+  {
+    "name": "enhance-prompt",
+    "group": "design-systems",
+    "folder": "enhance-prompt"
+  },
+  {
+    "name": "frontend-skill",
+    "group": "design-systems",
+    "folder": "frontend-skill"
+  },
+  {
+    "name": "platform-design",
+    "group": "design-systems",
+    "folder": "platform-design"
+  },
+  {
+    "name": "reference-design-contract",
+    "group": "design-systems",
+    "folder": "reference-design-contract"
+  },
+  {
+    "name": "shadcn-ui",
+    "group": "design-systems",
+    "folder": "shadcn-ui"
+  },
+  {
+    "name": "stitch-loop",
+    "group": "design-systems",
+    "folder": "stitch-loop"
+  },
+  {
+    "name": "stitch-design-taste",
+    "group": "design-systems",
+    "folder": "stitch-skill"
+  },
+  {
+    "name": "swiftui-design",
+    "group": "design-systems",
+    "folder": "swiftui-design"
+  },
+  {
+    "name": "theme-factory",
+    "group": "design-systems",
+    "folder": "theme-factory"
+  },
+  {
+    "name": "ui-skills",
+    "group": "design-systems",
+    "folder": "ui-skills"
+  },
+  {
+    "name": "ui-ux-pro-max",
+    "group": "design-systems",
+    "folder": "ui-ux-pro-max"
+  },
+  {
+    "name": "web-design-guidelines",
+    "group": "design-systems",
+    "folder": "web-design-guidelines"
+  },
+  {
+    "name": "wpds",
+    "group": "design-systems",
+    "folder": "wpds"
+  },
+  {
+    "name": "brainstorming",
+    "group": "creative-direction",
+    "folder": "brainstorming"
+  },
+  {
+    "name": "industrial-brutalist-ui",
+    "group": "creative-direction",
+    "folder": "brutalist-skill"
+  },
+  {
+    "name": "creative-director",
+    "group": "creative-direction",
+    "folder": "creative-director"
+  },
+  {
+    "name": "design-consultation",
+    "group": "creative-direction",
+    "folder": "design-consultation"
+  },
+  {
+    "name": "design-review",
+    "group": "creative-direction",
+    "folder": "design-review"
+  },
+  {
+    "name": "gpt-taste",
+    "group": "creative-direction",
+    "folder": "gpt-tasteskill"
+  },
+  {
+    "name": "impeccable-design-polish",
+    "group": "creative-direction",
+    "folder": "impeccable-design-polish"
+  },
+  {
+    "name": "minimalist-ui",
+    "group": "creative-direction",
+    "folder": "minimalist-skill"
+  },
+  {
+    "name": "plan-design-review",
+    "group": "creative-direction",
+    "folder": "plan-design-review"
+  },
+  {
+    "name": "redesign-existing-projects",
+    "group": "creative-direction",
+    "folder": "redesign-skill"
+  },
+  {
+    "name": "high-end-visual-design",
+    "group": "creative-direction",
+    "folder": "soft-skill"
+  },
+  {
+    "name": "design-taste-frontend",
+    "group": "creative-direction",
+    "folder": "taste-skill"
+  },
+  {
+    "name": "design-taste-frontend-v1",
+    "group": "creative-direction",
+    "folder": "taste-skill-v1"
+  },
+  {
+    "name": "gsap-core",
+    "group": "motion-and-animation",
+    "folder": "gsap-core"
+  },
+  {
+    "name": "gsap-frameworks",
+    "group": "motion-and-animation",
+    "folder": "gsap-frameworks"
+  },
+  {
+    "name": "gsap-performance",
+    "group": "motion-and-animation",
+    "folder": "gsap-performance"
+  },
+  {
+    "name": "gsap-plugins",
+    "group": "motion-and-animation",
+    "folder": "gsap-plugins"
+  },
+  {
+    "name": "gsap-react",
+    "group": "motion-and-animation",
+    "folder": "gsap-react"
+  },
+  {
+    "name": "gsap-scrolltrigger",
+    "group": "motion-and-animation",
+    "folder": "gsap-scrolltrigger"
+  },
+  {
+    "name": "gsap-timeline",
+    "group": "motion-and-animation",
+    "folder": "gsap-timeline"
+  },
+  {
+    "name": "gsap-utils",
+    "group": "motion-and-animation",
+    "folder": "gsap-utils"
+  },
+  {
+    "name": "emilkowalski-motion",
+    "group": "motion-and-animation",
+    "folder": "emilkowalski-motion"
+  },
+  {
+    "name": "review-animations",
+    "group": "motion-and-animation",
+    "folder": "review-animations"
+  },
+  {
+    "name": "chat-motion-overlay",
+    "group": "motion-and-animation",
+    "folder": "chat-motion-overlay"
+  },
+  {
+    "name": "emil-design-eng",
+    "group": "design-engineering",
+    "folder": "emil-design-eng"
+  },
+  {
+    "name": "web-clone",
+    "group": "web-pages",
+    "folder": "web-clone"
+  },
+  {
+    "name": "login-flow",
+    "group": "web-pages",
+    "folder": "login-flow"
+  },
+  {
+    "name": "faq-page",
+    "group": "web-pages",
+    "folder": "faq-page"
+  },
+  {
+    "name": "article-magazine",
+    "group": "web-pages",
+    "folder": "article-magazine"
+  },
+  {
+    "name": "data-report",
+    "group": "web-pages",
+    "folder": "data-report"
+  },
+  {
+    "name": "poster-hero",
+    "group": "web-pages",
+    "folder": "poster-hero"
+  },
+  {
+    "name": "resume-modern",
+    "group": "web-pages",
+    "folder": "resume-modern"
+  },
+  {
+    "name": "mockup-device-3d",
+    "group": "web-pages",
+    "folder": "mockup-device-3d"
+  },
+  {
+    "name": "doc-kami-parchment",
+    "group": "web-pages",
+    "folder": "doc-kami-parchment"
+  },
+  {
+    "name": "release-notes-one-pager",
+    "group": "web-pages",
+    "folder": "release-notes-one-pager"
+  },
+  {
+    "name": "research-decision-room",
+    "group": "web-pages",
+    "folder": "research-decision-room"
+  },
+  {
+    "name": "card-twitter",
+    "group": "social-cards",
+    "folder": "card-twitter"
+  },
+  {
+    "name": "card-xiaohongshu",
+    "group": "social-cards",
+    "folder": "card-xiaohongshu"
+  },
+  {
+    "name": "social-reddit-card",
+    "group": "social-cards",
+    "folder": "social-reddit-card"
+  },
+  {
+    "name": "social-spotify-card",
+    "group": "social-cards",
+    "folder": "social-spotify-card"
+  },
+  {
+    "name": "social-x-post-card",
+    "group": "social-cards",
+    "folder": "social-x-post-card"
+  },
+  {
+    "name": "writing-guidelines",
+    "group": "reference",
+    "folder": "writing-guidelines"
+  },
+  {
+    "name": "hand-drawn-diagrams",
+    "group": "reference",
+    "folder": "hand-drawn-diagrams"
+  },
+  {
+    "name": "d3-visualization",
+    "group": "reference",
+    "folder": "d3-visualization"
+  }
+]

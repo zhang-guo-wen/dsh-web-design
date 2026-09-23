@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>设计编辑器弹窗 — 布局预览</title>
+  <style>
+    :root {
+      --bg: #ffffff; --surface: #f7f9fb; --line: #e3e7ec;
+      --ink: #14181f; --muted: #5c6673; --accent: #2f5fe0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; height: 100vh; overflow: hidden;
+      font-family: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      color: var(--ink); background: #eef1f5;
+    }
+    .mask {
+      position: fixed; inset: 0; background: rgba(0,0,0,.32);
+      backdrop-filter: blur(2px); display: grid; place-items: center;
+      padding: 24px;
+    }
+    .dialog {
+      width: min(1360px, 100%); height: min(880px, 100%);
+      background: var(--bg); border-radius: 14px; overflow: hidden;
+      box-shadow: 0 24px 70px rgba(0,0,0,.4);
+      display: flex; flex-direction: column;
+    }
+    .head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 20px 12px 24px; flex: 0 0 auto;
+    }
+    .head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+    .x {
+      width: 28px; height: 28px; border: 0; border-radius: 7px; cursor: pointer;
+      background: var(--surface); color: var(--muted); font-size: 15px; line-height: 1;
+    }
+    .toolbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 10px 14px; border-bottom: 1px solid var(--line);
+      border-top: 1px solid var(--line); flex: 0 0 auto;
+    }
+    .group { display: flex; align-items: center; gap: 6px; }
+    .pill {
+      height: 26px; padding: 0 11px; border-radius: 13px; border: 1px solid var(--line);
+      background: var(--bg); color: var(--muted); font-size: 12.5px; cursor: pointer;
+    }
+    .pill.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+    .tag {
+      height: 22px; padding: 0 9px; border-radius: 11px; background: var(--surface);
+      color: var(--muted); font-size: 11.5px; display: inline-flex; align-items: center;
+    }
+    .btn {
+      height: 30px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--bg); color: var(--ink); font-size: 13px; cursor: pointer;
+    }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 550; }
+    .split { flex: 1 1 auto; min-height: 0; display: flex; background: #1c1f24; }
+    .stage { flex: 1 1 auto; min-width: 0; padding: 16px; display: flex; }
+    iframe {
+      flex: 1 1 auto; width: 100%; height: 100%; border: 0; border-radius: 8px;
+      background: #fff; box-shadow: 0 12px 40px rgba(0,0,0,.45);
+    }
+    .panel {
+      flex: 0 0 320px; overflow-y: auto; border-left: 1px solid var(--line);
+      background: var(--bg); padding: 12px; display: flex; flex-direction: column; gap: 16px;
+    }
+    .sec { display: flex; flex-direction: column; gap: 6px; }
+    .sec h3 {
+      margin: 0; font-size: 12px; font-weight: 600; color: var(--muted);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .sec h3 .n { font-size: 11px; color: #98a2b0; }
+    .meta { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; margin: 0; font-size: 12px; }
+    .meta dt { color: #98a2b0; }
+    .meta dd { margin: 0; overflow-wrap: anywhere; }
+    .mono { font-family: ui-monospace, monospace; font-size: 11px; overflow-wrap: anywhere; }
+    .muted { margin: 0; font-size: 12px; color: #98a2b0; }
+    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .field { display: flex; flex-direction: column; gap: 2px; }
+    .field span { font-size: 11px; color: #98a2b0; }
+    .field input {
+      font: inherit; font-size: 12px; padding: 6px 8px; border: 1px solid var(--line);
+      border-radius: 7px; width: 100%;
+    }
+    ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .comment { border: 1px solid var(--line); border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+    .comment .row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+    .comment p { margin: 0; font-size: 12px; }
+    .sev { height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; display: inline-flex; align-items: center; }
+    .sev.warn { background: #fdf3e2; color: #8a5a00; }
+    .sev.info { background: #e8effd; color: #2f5fe0; }
+    .note { margin: 0; font-size: 12px; color: #1f7a3d; }
+  </style>
+</head>
+<body>
+  <div class="mask">
+    <div class="dialog">
+      <div class="head">
+        <h2>网页设计预览</h2>
+        <button class="x" aria-label="关闭">✕</button>
+      </div>
+
+      <div class="toolbar">
+        <div class="group">
+          <button class="pill">浏览</button>
+          <button class="pill on">选择元素</button>
+          <button class="pill">元素评论</button>
+          <button class="pill">标注截图</button>
+        </div>
+        <div class="group">
+          <span class="tag">未保存</span>
+          <button class="btn primary">保存到文件</button>
+          <button class="btn">重新加载</button>
+          <button class="btn">隐藏</button>
+        </div>
+      </div>
+
+      <div class="split">
+        <div class="stage">
+          <iframe src="landing.html" title="页面预览"></iframe>
+        </div>
+
+        <aside class="panel">
+          <div class="sec">
+            <h3>选择元素</h3>
+            <dl class="meta">
+              <dt>选择器</dt><dd class="mono">body &gt; main &gt; section:nth-of-type(1) &gt; div &gt; h1</dd>
+              <dt>标签</dt><dd class="mono">h1</dd>
+              <dt>尺寸</dt><dd>672 × 114</dd>
+              <dt>文本</dt><dd>让每一个团队都能读懂自己的数据</dd>
+            </dl>
+          </div>
+
+          <div class="sec">
+            <h3>排版</h3>
+            <div class="fields">
+              <label class="field"><span>字号</span><input value="52px"></label>
+              <label class="field"><span>字重</span><input value="700"></label>
+              <label class="field"><span>行高</span><input value="1.1"></label>
+              <label class="field"><span>字距</span><input value="-0.028em"></label>
+              <label class="field"><span>文字颜色</span><input value="rgb(20, 24, 31)"></label>
+              <label class="field"><span>背景色</span><input value="rgba(0, 0, 0, 0)"></label>
+              <label class="field"><span>内边距</span><input value="0px"></label>
+              <label class="field"><span>外边距</span><input value="0px 0px 20px"></label>
+            </div>
+            <div class="group" style="margin-top:4px">
+              <button class="btn primary">应用样式</button>
+              <button class="btn">重置</button>
+            </div>
+            <label class="field" style="margin-top:4px"><span>文本内容</span><input value="让每一个团队都能读懂自己的数据"></label>
+          </div>
+
+          <div class="sec">
+            <h3>评论 <span class="n">2</span></h3>
+            <ul>
+              <li class="comment">
+                <div class="row"><span class="sev warn">问题</span><span class="mono">h1</span></div>
+                <p>标题在这个宽度下换行成了三行，压一下字号。</p>
+              </li>
+              <li class="comment">
+                <div class="row"><span class="sev info">细节</span><span class="mono">body &gt; footer &gt; div &gt; span</span></div>
+                <p>页脚版权年份想改成 2027。</p>
+              </li>
+            </ul>
+            <label class="field" style="margin-top:4px"><span>写点什么…</span><input></label>
+            <div class="group"><button class="btn primary">提交</button></div>
+          </div>
+
+          <div class="sec">
+            <h3>样式修改 <span class="n">1</span></h3>
+            <ul>
+              <li class="comment"><div class="row"><span class="mono">body &gt; main &gt; section:nth-of-type(1) &gt; div &gt; h1</span><span class="n">2</span></div></li>
+            </ul>
+          </div>
+
+          <p class="note">已写入文件。</p>
+        </aside>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
