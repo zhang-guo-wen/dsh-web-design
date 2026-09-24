@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "file": "C:\\02-codespace\\deepseek-harness\\dsh-web-design\\demo\\landing.html",
+  "comments": [
+    {
+      "id": "c-mudr75tz-l6riavts",
+      "kind": "element",
+      "element": {
+        "selector": "body > main > section:nth-of-type(1) > div > h1",
+        "tag": "h1",
+        "classes": [
+          "headline"
+        ],
+        "text": "让每一个团队都能读懂自己的数据",
+        "rect": {
+          "x": 28,
+          "y": 199.7916717529297,
+          "width": 371.57293701171875,
+          "height": 83.58333587646484
+        }
+      },
+      "body": "1010",
+      "severity": "note",
+      "resolved": false,
+      "createdAt": "2026-09-23T07:00:24.263Z"
+    }
+  ],
+  "edits": [],
+  "updatedAt": "2026-09-23T07:00:24.263Z"
+}
