@@ -20,8 +20,7 @@ const check = (label, condition) => {
 const plugin = await import('../lib/index.mjs')
 
 check('exports name', plugin.name === 'web-design')
-check('exports inject', Array.isArray(plugin.inject))
-check('exports Config', typeof plugin.Config === 'function' || typeof plugin.Config === 'object')
+check('exports inject', Array.isArray(plugin.inject) && plugin.inject.length === 0)
 check('exports apply', typeof plugin.apply === 'function')
 check('exports WebDesignRemote', typeof plugin.WebDesignRemote === 'function')
 check('exports TYPERT_REMOTE with every descriptor', plugin.TYPERT_REMOTE?.descriptors?.length === 3)
@@ -29,14 +28,18 @@ check('descriptors cover read, write, and apply', ['read', 'write', 'apply'].eve
   method => plugin.TYPERT_REMOTE.descriptors.some(descriptor => descriptor.method === method),
 ))
 check('remote namespace', plugin.REMOTE_NAMESPACE === 'webDesignReview')
+check('exports no skill installer', !('materializeSkills' in plugin) && !('resolveSkillsDir' in plugin))
 
 const root = await mkdtemp(join(tmpdir(), 'dsh-web-design-smoke-'))
+/** An agents home the plugin must leave untouched: it owns no skill directory. */
+const agentsHome = join(root, 'agents-home')
+const previousAgentsHome = process.env.DSH_AGENTS_HOME
+process.env.DSH_AGENTS_HOME = agentsHome
 try {
-  const targetDir = join(root, 'skills')
   const ctx = new Context()
   let applied = true
   try {
-    plugin.apply(ctx, { enabled: true, targetDir, skillNames: [], verifyOnLoad: false })
+    plugin.apply(ctx)
   } catch (error) {
     applied = false
     console.error(`apply threw: ${error?.stack ?? error}`)
@@ -44,30 +47,14 @@ try {
   check('apply does not throw', applied)
   check('registers the Remote on the context', ctx.get('webDesignReview') !== undefined)
 
-  // The install runs beside the effect, so give its promise a turn before
-  // asserting on disk.
-  await new Promise(resolve => setTimeout(resolve, 400))
-  const installed = existsSync(targetDir) ? (await readdir(targetDir)).length : 0
-  check('installed the bundled skills', installed >= 60)
-
-  // A disabled plugin must install nothing but must still serve the Remote the
-  // browser half always mounts.
-  const offDir = join(root, 'skills-off')
-  const offCtx = new Context()
-  plugin.apply(offCtx, { enabled: false, targetDir: offDir, skillNames: [], verifyOnLoad: false })
-  await new Promise(resolve => setTimeout(resolve, 100))
-  check('disabled installs nothing', !existsSync(offDir))
-  check('disabled still registers the Remote', offCtx.get('webDesignReview') !== undefined)
-
-  // An unknown skill name is a misconfiguration and must fail loud rather than
-  // silently installing a smaller catalog.
-  const badCtx = new Context()
-  let warned = ''
-  badCtx.logger.warn = (message) => { warned = String(message) }
-  plugin.apply(badCtx, { enabled: true, targetDir: join(root, 'skills-bad'), skillNames: ['no-such-skill'], verifyOnLoad: false })
-  await new Promise(resolve => setTimeout(resolve, 300))
-  check('unknown skill name is reported', warned.includes('unknown skill name'))
+  // Skill installation used to run beside the effect, so give a stray write the
+  // same turn it would have had before asserting on disk.
+  await new Promise(resolve => setTimeout(resolve, 200))
+  const written = existsSync(agentsHome) ? await readdir(agentsHome) : []
+  check('writes nothing into the agent skills directory', written.length === 0)
 } finally {
+  if (previousAgentsHome === undefined) delete process.env.DSH_AGENTS_HOME
+  else process.env.DSH_AGENTS_HOME = previousAgentsHome
   await rm(root, { recursive: true, force: true })
 }
 

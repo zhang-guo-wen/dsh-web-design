@@ -1,40 +1,37 @@
 # dsh-web-design
 
-Web design for DeepSeek Harness: OpenDesign's web-design skills in your agent skills directory, and an HTML preview in the Sidebar for reviewing a page as it is built — pick elements, edit their style, and leave element comments.
+Web design for DeepSeek Harness: an HTML preview in the Sidebar for inspecting and editing page elements.
 
-This is a standalone plugin. It bundles no `@deepseek-ai/*` code; every harness package resolves from the running host at load time.
+This is a standalone plugin. It bundles no `@deepseek-ai/*` code; harness services resolve from the running host, and the atomic file writer is a declared runtime dependency. It ships no skills either: the design skills a session uses are ordinary directories in the agent skills directory, installed by whatever put them there, and this plugin neither writes nor removes any of them.
 
 ## What it does
 
-**1. Installs web-design skills into `~/.agents/skills/`.**
+**Previews HTML in the Sidebar, with design tools.**
+Opening an `.html` file in the Sidebar shows the page immediately. A two-position switch changes between Preview and Edit without remounting the page. Preview leaves the page's buttons, links, and other click behavior active. In Edit, a single click selects an element and a double-click opens its floating editor without replacing the page. The frame confirms each mode switch before accepting another click, so a rapid click cannot activate the page under the wrong mode.
 
-Enabling the plugin copies the bundled skills into the agent skills directory the filesystem skill provider already reads, so they appear in a session's skill catalog like any hand-installed skill. 66 skills ship, covering web artifacts (`frontend-design`, `web-artifacts-builder`), design systems (`apple-hig`, `material`, `shadcn-ui`, `web-design-guidelines`), creative direction (`design-review`, `high-end-visual-design`, `industrial-brutalist-ui`), motion (`gsap-*`, `emil-design-eng`), and page templates (`web-clone`, `faq-page`, `data-report`).
+The editor offers:
 
-They are copied rather than registered at runtime because the requirement is a directory you can read, edit, and keep: a runtime registration would be invisible on disk and would vanish with the plugin.
-
-**2. Previews HTML in the Sidebar, with design tools.**
-Opening an `.html` file in the Sidebar shows the page immediately. The preview stays mounted while the toolbar changes pointer modes or an edit dialog opens, so opening and closing the editor does not reset the page.
-
-The toolbar and optional review panel offer:
-
-- **Edit element** — select Edit, then click an element. A floating dialog opens beside the preview when space allows, or along the bottom of a narrow viewport. Save applies its text and style changes; Cancel discards the draft.
+- **Edit element** — select Edit, single-click the exact element to highlight it, then double-click to open the dialog. For transparent controls covering label text, clicking the text selects the text leaf while clicking the surrounding option selects its box. The dialog's **Parent** action moves to the containing element, including a group whose border is too thin to target directly. The dialog opens beside the preview when space allows, or along the bottom of a narrow viewport. A draft immediately shows **Unsaved** in the toolbar; Cancel discards it.
+- **Move element** — drag the handle on the selected outline. Block elements move with CSS `translate`; inline text elements use relative `left`/`top` offsets because browsers do not translate ordinary inline boxes. Save in the dialog keeps the new position; Cancel restores the original inline declarations.
 - **Edit style** — change font size, weight, line height, letter spacing, color, background, padding, margin, and corner radius. Saved style overrides apply to the frame and persist with the review.
-- **Element comments** — attach a comment to the selected element with a severity (note, nit, issue, blocker), then resolve, reopen, or delete it.
-- **Text edit** — Save in the edit dialog changes the frame and keeps the text replacement pending for the file write.
-- **Save to file** — write the style and text edits into the HTML file itself.
+- **Text edit** — an element with exactly one non-blank direct text node exposes that text in a field, even when it also has child elements. A parent container cannot replace the text of its descendants or guess between multiple direct text runs. The dialog header identifies the selected tag and CSS selector; compact **Parent** and **Copy** actions sit on the right. Copy puts the selected element's CSS selector on the clipboard so it can be shared for a precise change, including when the element has no editable direct text. Save in the dialog changes the frame and keeps the text replacement pending for the file write.
+- **Delete element** — remove the selected element and its descendants from the preview. The toolbar shows **Unsaved** until **Save to file** removes that exact element from the HTML source. **Undo deletion** restores all pending deletions before they reach the file. Document roots (`html`, `head`, and `body`) cannot be deleted.
+- **Save to file** — write the style, text, and deletion edits into the HTML file itself.
 
 ### Writing edits back to the file
 
 Editing in the preview changes the *rendered* page; **Save to file** is what changes the artifact. It is deliberately explicit, and it edits the source text in place rather than re-serializing the frame's DOM: by the time the preview is interactive the parser has normalized attributes and page scripts have added their own nodes, so a serialized dump would rewrite the whole file and discard comments, formatting, and authored structure.
 
-Each edit is therefore applied as a span rewrite. The selector the preview reported is resolved against the source's own element tree, and only the located element's `style` attribute or text node is replaced — an element with an existing `style` gains or updates declarations in place, keeping its other attributes and their order. Every other byte of the file is preserved.
+Each edit is therefore applied as a span rewrite. The selector the preview reported is resolved against the source's own element tree. Style and text edits replace only the located attribute or text node; deletion removes the located element's complete source span, including its children. An element with an existing `style` gains or updates declarations in place, keeping its other attributes and their order. Every other byte of the file is preserved. The write uses an atomic sibling replacement with bounded retries for temporary Windows file sharing errors.
 
 The result is reported honestly:
 
 - **Applied** — the selector reached the file.
-- **Skipped** — the selector could not be located in the source (for example the element is generated by a script, or the edit targets something only present after page scripts ran). The panel lists these instead of claiming success.
+- **Skipped** — the selector could not be located uniquely in the source (for example the element is generated by a script, an id is duplicated, or a sibling path becomes ambiguous). The preview reports these instead of claiming success.
 
-Text replacement is limited to elements with a single text child; replacing an element that contains markup would discard that markup, so it is refused rather than flattened.
+Text replacement is limited to elements with one non-blank direct text node; child markup is preserved, and multiple direct text runs are refused. A successful file write clears the **Unsaved** status for the committed edit. Older sidecars may contain comments, which are retained when edits are saved, but the current preview has no comment or annotation controls.
+
+Pending deletions are replayed when the preview reloads. Before deleting from the source, the writer checks the element's original full text and class names; a positional selector also needs a unique matching fingerprint. A mismatch is reported as **Skipped**, leaving the source element intact. Once a deletion is written, style edits for that element and its descendants are removed from the review sidecar.
 
 ## Install
 
@@ -48,22 +45,9 @@ The profile adds the bundle and the `link:` dependency. Then **restart the host*
 pnpm dsh --profile web --dump-config | Select-String web-design   # confirm the composition
 ```
 
-## Configuration
-
-```yaml
-- id: web-design
-  name: '@guowenzhang/dsh-web-design'
-  config:
-    enabled: true          # install the bundled skills at all
-    targetDir: ''          # default: $DSH_AGENTS_HOME/skills or ~/.agents/skills
-    skillNames: []         # empty installs every bundled skill; name a subset to install fewer
-```
-
-`skillNames` is checked against the bundle: an unknown name fails the install loudly rather than silently shipping a smaller catalog.
-
 ## Where the review is stored
 
-Review state is a sidecar beside the reviewed file, named `<file>.design.json`. It travels with the artifact and is readable by the agent that owns it:
+Review state is a sidecar beside the reviewed file, named `<file>.design.json`. It travels with the artifact and is readable by the agent that owns it.
 
 The Sidebar passes the file's Session address to the Host. The Host resolves its relative path against that Session's recorded working directory (or the configured workspace root when the Session has no cwd), checks that the file remains inside the Session workspace, and returns its absolute path before editing is enabled. The `file` field in the sidecar is that resolved absolute path. If the Session no longer exists or the path cannot be resolved, the page remains visible, but review saves and **Save to file** stay unavailable.
 
@@ -71,53 +55,29 @@ The Sidebar passes the file's Session address to the Host. The Host resolves its
 {
   "version": 1,
   "file": "/workspace/index.html",
-  "comments": [
-    {
-      "id": "c-1u2x3-abc",
-      "kind": "element",
-      "element": { "selector": "main > section.hero > h1", "tag": "h1", "classes": ["title"], "text": "Ship faster", "rect": { "x": 0, "y": 120, "width": 640, "height": 72 } },
-      "body": "Headline is too small at this breakpoint.",
-      "severity": "issue",
-      "resolved": false,
-      "createdAt": "2026-09-22T10:00:00.000Z"
-    }
-  ],
+  "comments": [],
   "edits": [{ "selector": "main > section.hero > h1", "declarations": { "font-size": "56px" }, "updatedAt": "2026-09-22T10:01:00.000Z" }]
 }
 ```
 
 The preview does not write the HTML file until **Save to file**. Style edits live in the sidecar and re-apply on load.
 
-## Ownership of installed skills
-
-Every directory this plugin writes carries a `.dsh-web-design.json` marker recording the owner, version, and a content digest. That makes the install safe to repeat and safe to remove:
-
-- A second boot at the same version rewrites nothing, so the skill watcher sees no spurious changes.
-- A version bump refreshes stale copies.
-- A skill directory **without** the marker is yours; the plugin never overwrites or deletes it, and reports it as `foreign` instead. If you already have `frontend-design` from another source, both remain and your copy wins by provider rank.
-- Disabling the plugin removes exactly the directories it wrote, and never the skills directory itself.
-
 ## Commands
 
 ```sh
-npm run port-skills   # re-port the bundled skills from an OpenDesign installation
 npm run typecheck
 npm run build         # host (tsdown) + client (__ModuleLoader__ handoff bundle)
-npm test              # skills, host apply, materialization, sidecar, client registration
+npm test              # host apply, sidecar round-trip, source edits, client registration
 ```
-
-`npm run port-skills` reads OpenDesign's shipped skills at a fixed default path; pass `--source <dir>` to point elsewhere. The selection list lives in `tools/port-skills.mjs` — a new upstream skill never enters this plugin unnoticed.
 
 Rebuilding the client changes `lib/client.js`; bump `HANDOFF_ID` in `build-client.mjs` or hard-refresh the browser, otherwise the page keeps running the previous bundle.
 
 ## Known limitations and deferred work
 
 - **Relative page assets are not bundled into this preview.** HTML with inline CSS and scripts renders directly; links to sibling CSS, JavaScript, images, or fonts need a separate asset-loading path before they can appear in the isolated frame.
-- **Region annotation is incomplete.** The toolbar exposes Annotate mode, but the frame does not yet report a completed drag region. The frame is sandboxed without `allow-same-origin`, so the parent also cannot snapshot its pixels.
 - **Save to file cannot reach elements that only exist after page scripts run.** The selector is resolved against the source tree, so an element the page's JavaScript created is reported as skipped rather than written somewhere else.
-- **`swiftui-design` and `chat-motion-overlay` ship but target non-web surfaces.** They are included because they arrived in the web-design upstream group; a deployment that wants a smaller catalog should name `skillNames`.
-- **The bundled skills are a point-in-time copy.** Re-port with `npm run port-skills` after an OpenDesign upgrade; the plugin does not track upstream changes on its own.
+- **A script can reorder otherwise identical siblings.** A selector path alone cannot prove which authored sibling a moved DOM node came from when the sibling count remains the same. Use stable ids for elements whose edits must be written back; otherwise inspect the file after saving.
 
 ## Model experience
 
-The installed skills enter the session's skill catalog as ordinary discovered skills — this plugin adds no prompt section, tool, or token cost of its own. Skill bodies load only when the model or the user invokes one. The Sidebar preview is presentation-only: review state lives in a file beside the artifact, and nothing the preview does reaches the model request unless the agent reads the sidecar.
+The plugin registers a Host Remote and a Sidebar body, and adds no prompt section, tool, or skill of its own, so a session's skill catalog is exactly what its skill directories contain. The Sidebar preview is presentation-only: review state lives in a file beside the artifact, and nothing the preview does reaches the model request unless the agent reads the sidecar.

@@ -1,12 +1,13 @@
 {
   "name": "@guowenzhang/dsh-web-design",
-  "description": "Web design for DeepSeek Harness: port OpenDesign's web-design skills into the agent skills directory, and preview HTML in the Sidebar with element editing, annotated screenshots, and element comments",
+  "description": "Web design for DeepSeek Harness: preview and edit HTML elements in the Sidebar",
   "version": "0.1.0",
   "type": "module",
   "license": "Apache-2.0",
   "publishConfig": {
     "access": "public"
-  },  "main": "lib/index.mjs",
+  },
+  "main": "lib/index.mjs",
   "exports": {
     ".": {
       "default": "./lib/index.mjs"
@@ -38,30 +39,14 @@
   "files": [
     "lib/index.mjs",
     "lib/client.js",
-    "assets/skills/design-taste-frontend",
-    "assets/skills/design-taste-frontend-v1",
-    "assets/skills/emil-design-eng",
-    "assets/skills/frontend-design",
-    "assets/skills/gpt-taste",
-    "assets/skills/high-end-visual-design",
-    "assets/skills/image-to-code",
-    "assets/skills/industrial-brutalist-ui",
-    "assets/skills/minimalist-ui",
-    "assets/skills/redesign-existing-projects",
-    "assets/skills/review-animations",
-    "assets/skills/stitch-design-taste",
-    "assets/skills/web-clone",
-    "assets/skills/web-design-guidelines",
-    "assets/skills/writing-guidelines",
     "LICENSE",
     "NOTICE",
     "cordis.patch.yml"
   ],
   "scripts": {
-    "port-skills": "node tools/port-skills.mjs",
     "build": "tsdown -c tsdown.config.ts && node build-client.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node tests/skills.mjs && node tests/smoke.mjs && node tests/materialize.mjs && node tests/annotations.mjs && node tests/source-edit.mjs && vitest run"
+    "test": "node tests/smoke.mjs && node tests/annotations.mjs && node tests/source-edit.mjs && vitest run"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
@@ -159,9 +144,9 @@
     "immer": "^10.2.0",
     "jsdom": "^29.1.1",
     "lightningcss": "^1.32.0",
-    "rolldown": "^1.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "rolldown": "^1.0.0",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
     "vitest": "^5.0.1",
@@ -169,6 +154,7 @@
     "zustand": "~4.4.7"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-atomic-write": "0.1.6-alpha.2",
     "parse5": "^8.0.1"
   }
 }

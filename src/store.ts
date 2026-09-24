@@ -9,8 +9,8 @@
  * @module @guowenzhang/dsh-web-design/store
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type { DesignAnnotationDocument, DesignComment, ElementEdit } from './types.ts'
 
 /** Suffix appended to a previewed file's path to name its review sidecar. */
@@ -64,10 +64,7 @@ export async function writeAnnotations(
 ): Promise<{ storePath: string; comments: number; edits: number }> {
   const bounded = boundDocument(document, filePath)
   const storePath = sidecarPath(filePath)
-  await mkdir(dirname(storePath), { recursive: true })
-  const temporary = `${storePath}.${process.pid}.tmp`
-  await writeFile(temporary, `${JSON.stringify(bounded, null, 2)}\n`, 'utf8')
-  await rename(temporary, storePath)
+  await writeFileAtomic(storePath, `${JSON.stringify(bounded, null, 2)}\n`, { mode: 0o600 })
   return { storePath, comments: bounded.comments.length, edits: bounded.edits.length }
 }
 

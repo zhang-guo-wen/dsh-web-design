@@ -227,7 +227,7 @@ describe('web-design preview registration', () => {
     expect((injected?.fileRefOf as (address: string) => unknown)('not-an-address')).toBeUndefined()
   })
 
-  it('starts the preview with the review panel and edit dialog closed', async () => {
+  it('starts in preview mode with only preview and element editing controls', async () => {
     const { fiber, registrations } = mount()
     await fiber.await()
     const injected = registrations[0]?.inject() as Record<string, unknown>
@@ -236,24 +236,29 @@ describe('web-design preview registration', () => {
 
     // The component is exercised through the runtime's own rendering path in
     // the harness suites; here the contract under test is that the store the
-    // plugin declares carries the initial state the panel reads.
+    // plugin declares carries the initial state the preview reads.
     const instance = store.create() as {
       getSnapshot(): Record<string, unknown>
       actions: Record<string, (...args: unknown[]) => void>
     }
     const state = instance.getSnapshot()
-    expect(state).toMatchObject({ mode: 'browse', panelOpen: false, dirty: false, saving: false })
+    expect(state).toMatchObject({ mode: 'browse', dirty: false, saving: false })
     expect(state.document).toBeNull()
+    expect(state).not.toHaveProperty('panelOpen')
+    expect(state).not.toHaveProperty('draft')
+    expect(state).not.toHaveProperty('region')
+    expect(state).not.toHaveProperty('screenshot')
 
-    // The preview is the default surface. An element selection opens the edit
-    // dialog, and the review panel can be shown independently.
+    // The preview is the default surface. Returning to it closes the editor.
     expect(state.open).toBe(false)
+    instance.actions.setMode('inspect')
     instance.actions.setOpen(true)
     expect(instance.getSnapshot().open).toBe(true)
-    instance.actions.setOpen(false)
+    instance.actions.setMode('browse')
     expect(instance.getSnapshot().open).toBe(false)
-    instance.actions.togglePanel()
-    expect(instance.getSnapshot().panelOpen).toBe(true)
+    expect(instance.actions.togglePanel).toBeUndefined()
+    expect(instance.actions.addComment).toBeUndefined()
+    expect(instance.actions.setRegion).toBeUndefined()
     expect(injected.loadReview).toBeTypeOf('function')
   })
 })

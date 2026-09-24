@@ -200,6 +200,24 @@ try {
   })
   check('re-applying reports no change', again.changed === false)
 
+  const removed = await remote.apply({
+    file: fileRef,
+    edits: [],
+    textEdits: {},
+    deletions: [{ selector: 'body > h1', text: 'Hello', classes: ['t'] }],
+  })
+  check('apply reports a deleted element', removed.applied.includes('body > h1') && removed.skipped.length === 0)
+  check('apply removes exactly the selected source span', await readFile(target, 'utf8')
+    === rewritten.replace('<h1 class="t" style="color: red">Hello</h1>', ''))
+
+  let badDeletion = false
+  try {
+    await remote.apply({ file: fileRef, edits: [], textEdits: {}, deletions: [{ selector: 'body > h1' }] })
+  } catch (error) {
+    badDeletion = String(error).includes('deletions')
+  }
+  check('apply rejects deletion without a source fingerprint', badDeletion)
+
   // A selector that does not exist is reported and the file stays byte-identical.
   const beforeMiss = await readFile(target, 'utf8')
   const missed = await remote.apply({

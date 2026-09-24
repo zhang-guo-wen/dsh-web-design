@@ -4,7 +4,7 @@
  * The Sidebar HTML preview runs in the browser, but review state must outlive a
  * page load and stay readable by the agent that owns the artifact. The Remote
  * is the only write path: the generated `workspaceFiles` namespace the Client
- * already has is read-only, so the preview cannot persist a comment without
+ * already has is read-only, so the preview cannot persist edits without
  * this service.
  *
  * The service registers unconditionally. A guarded registration would make
@@ -14,9 +14,10 @@
  * @module @guowenzhang/dsh-web-design/remote
  */
 
-import { readFile, rename, writeFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-session'
@@ -102,14 +103,14 @@ export class WebDesignRemote extends TypertRemoteService {
    * Rewrite one previewed file from the reviewer's edits.
    *
    * Each edit is applied as a span rewrite against the file's own source text,
-   * so the rewrite touches only the located elements' `style` attributes and
-   * text nodes. Nothing else in the file changes, and edits that cannot be
-   * located are reported rather than silently dropped.
+   * so the rewrite touches only the located elements' `style` attributes,
+   * text nodes, and spans selected for deletion. Nothing else in the file
+   * changes. Edits that cannot be located are reported rather than dropped.
    *
    * The write is atomic: a temporary file beside the target is renamed over it,
    * so a reader never observes a half-written document.
    * @param request - the previewed file's Session address, its style edits, and
-   *   its element text replacements.
+   *   its element text replacements and deletions.
    * @returns the path, what was applied and skipped, and the written size.
    * @throws a typed error when the request is unusable or the write fails.
    */
@@ -127,6 +128,14 @@ export class WebDesignRemote extends TypertRemoteService {
         reason: `textEdits was ${typeof textEdits}`,
       })
     }
+    const deletions = request.deletions ?? []
+    if (!Array.isArray(deletions) || deletions.some(deletion => typeof deletion !== 'object' || deletion === null
+      || typeof deletion.selector !== 'string' || typeof deletion.text !== 'string'
+      || !Array.isArray(deletion.classes) || deletion.classes.some((token: unknown) => typeof token !== 'string'))) {
+      throw new RemoteError('web-design/invalid', 'apply requires fingerprinted `deletions`', {
+        reason: 'each deletion needs selector, normalized text, and class tokens',
+      })
+    }
     let original: string
     try {
       original = await readFile(path, 'utf8')
@@ -135,17 +144,16 @@ export class WebDesignRemote extends TypertRemoteService {
         reason: cause instanceof Error ? cause.message : String(cause),
       }, { cause })
     }
-    const result = applySourceEdits(original, request.edits, textEdits)
+    const result = applySourceEdits(original, request.edits, textEdits, deletions)
     const changed = result.source !== original
     if (changed) {
       try {
-        // Same-directory temporary keeps the rename on one filesystem.
-        const temporary = `${path}.${process.pid}.dsh-web-design.tmp`
-        await writeFile(temporary, result.source, 'utf8')
-        await rename(temporary, path)
+        const mode = (await stat(path)).mode & 0o777
+        await writeFileAtomic(path, result.source, { mode })
       } catch (cause) {
-        throw new RemoteError('web-design/io', `writing ${path} failed`, {
-          reason: cause instanceof Error ? cause.message : String(cause),
+        const reason = cause instanceof Error ? cause.message : String(cause)
+        throw new RemoteError('web-design/io', `writing ${path} failed: ${reason}`, {
+          reason,
         }, { cause })
       }
     }

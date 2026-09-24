@@ -33,7 +33,9 @@ const stubs = {
  * A stand-in for the primitives the preview composes. Each export is the
  * smallest React element that keeps the component tree renderable; the props
  * the preview passes (`variant`, `tone`, `label`, `active`) are accepted and
- * ignored.
+ * ignored. `writeClipboard` keeps the one behaviour the preview depends on: it
+ * writes through `navigator.clipboard` and reports acceptance, so a spec can
+ * assert on a fake clipboard instead of the harness's UI kit.
  */
 const STUB_PRIMITIVES = `
 import { createElement } from 'react'
@@ -43,6 +45,15 @@ export const Input = passthrough('input')
 export const Pill = passthrough('button')
 export const Tag = passthrough('span')
 export const Tooltip = ({ children, label }) => children
+export const writeClipboard = async (text) => {
+  if (navigator.clipboard?.writeText === undefined) return false
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
+}
 `
 
 export default defineConfig({

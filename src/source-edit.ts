@@ -10,15 +10,15 @@
  *
  * Instead each edit is applied as a span rewrite. The selector the frame
  * reported is resolved against the source's own element tree, and only the
- * located element's `style` attribute or text node is replaced. Every other
- * byte of the file is preserved.
+ * located element's `style` attribute, text node, or full source span is
+ * replaced. Every other byte of the file is preserved.
  *
  * @module @guowenzhang/dsh-web-design/source-edit
  */
 
 import { parse, parseFragment } from 'parse5'
 import type { DefaultTreeAdapterMap } from 'parse5'
-import type { ElementEdit } from './types.ts'
+import type { ElementDeletion, ElementEdit } from './types.ts'
 
 type Node = DefaultTreeAdapterMap['node']
 type Element = DefaultTreeAdapterMap['element']
@@ -32,6 +32,12 @@ interface Replacement {
   readonly end: number
   /** Text to write in place of the span. */
   readonly text: string
+}
+
+/** A requested source replacement and the selector that produced it. */
+interface RequestedReplacement {
+  readonly selectors: readonly string[]
+  readonly replacement: Replacement
 }
 
 /** Result of applying a set of edits to a source document. */
@@ -51,13 +57,16 @@ interface SelectorStep {
   readonly nth?: number
 }
 
+/** A selector either identifies one source element or gives a reason to skip it. */
+type LocatedElement = { readonly element: Element; readonly reason?: never }
+  | { readonly element?: never; readonly reason: string }
+
 /**
  * Parse the selector grammar the preview frame emits.
  *
  * The frame builds `tag`, `tag#id`, and `tag:nth-of-type(n)` steps joined by
- * ` > `. This parser accepts exactly that grammar; anything else is a selector
- * this module cannot resolve in source, and the caller reports it as skipped
- * rather than guessing.
+ * ` > `. Id anchors use plain CSS identifiers. Other selectors are reported
+ * as skipped rather than guessed.
  * @param selector - the frame's selector string.
  * @returns the parsed steps, or `undefined` when the grammar does not match.
  */
@@ -66,15 +75,18 @@ export function parseSelector(selector: string): SelectorStep[] | undefined {
   if (trimmed.length === 0) return undefined
   const steps: SelectorStep[] = []
   for (const raw of trimmed.split(/\s*>\s*/u)) {
-    const match = /^([a-z][a-z0-9-]*)(?:#([^\s:>]+))?(?::nth-of-type\((\d+)\))?$/iu.exec(raw)
+    const match = /^([a-z][a-z0-9-]*)(?:#([a-z_][a-z0-9_-]*))?(?::nth-of-type\((\d+)\))?$/iu.exec(raw)
     if (match === null) return undefined
     const tag = match[1]
     /* v8 ignore next -- group 1 is mandatory in the pattern, so exec guarantees it. */
     if (tag === undefined) return undefined
+    if (match[2] !== undefined && match[3] !== undefined) return undefined
+    const nth = match[3] === undefined ? undefined : Number(match[3])
+    if (nth !== undefined && (!Number.isSafeInteger(nth) || nth < 1)) return undefined
     steps.push({
       tag: tag.toLowerCase(),
       ...match[2] === undefined ? {} : { id: match[2] },
-      ...match[3] === undefined ? {} : { nth: Number(match[3]) },
+      ...nth === undefined ? {} : { nth },
     })
   }
   return steps
@@ -123,21 +135,28 @@ function attrOf(element: Element, name: string): string | undefined {
  * selector this module cannot resolve, and the caller reports it.
  * @param root - the document or fragment root.
  * @param steps - parsed selector steps.
- * @returns the located element, or `undefined` when the path does not resolve.
+ * @returns the unique located element, or the reason the path cannot be trusted.
  */
-function locate(root: Node, steps: readonly SelectorStep[]): Element | undefined {
+function locate(root: Node, steps: readonly SelectorStep[]): LocatedElement {
   const first = steps[0]
   /* v8 ignore next -- parseSelector returns a non-empty array or undefined. */
-  if (first === undefined) return undefined
+  if (first === undefined) return { reason: 'element not found in source' }
   if (first.id !== undefined) {
-    const anchored = findById(root, first.id, first.tag)
-    if (anchored === undefined) return undefined
-    return descend(anchored, steps, 1) ?? anchored
+    const anchors = findById(root, first.id)
+    if (anchors.length !== 1) {
+      return { reason: anchors.length === 0 ? 'element not found in source' : 'duplicate id in source' }
+    }
+    const anchored = anchors[0]
+    /* v8 ignore next -- the length check guarantees this element. */
+    if (anchored === undefined) return { reason: 'element not found in source' }
+    if (tagOf(anchored) !== first.tag) return { reason: 'id anchor tag differs from source' }
+    return steps.length === 1 ? { element: anchored } : descend(anchored, steps, 1)
   }
   // A document parse has exactly one `html` element; a fragment parse has none.
   // Entering it makes both shapes address the path the frame produced.
   const roots = childElements(root)
   const scope: Node = roots.length === 1 && tagOf(roots[0] as Element) === 'html' ? roots[0] as Element : root
+  if (steps.length === 1 && first.tag === 'html' && isElement(scope)) return { element: scope }
   return descend(scope, steps, 0)
 }
 
@@ -146,96 +165,154 @@ function locate(root: Node, steps: readonly SelectorStep[]): Element | undefined
  * @param scope - node whose element children the next step selects from.
  * @param steps - the complete parsed path.
  * @param from - index of the first step to apply.
- * @returns the located element, or `undefined`.
+ * @returns the unique located element, or the reason the path cannot be trusted.
  */
-function descend(scope: Node, steps: readonly SelectorStep[], from: number): Element | undefined {
+function descend(scope: Node, steps: readonly SelectorStep[], from: number): LocatedElement {
   let current: Node = scope
   let found: Element | undefined
   for (let index = from; index < steps.length; index += 1) {
     const step = steps[index]
     /* v8 ignore next -- the loop bounds keep every index inside the array. */
-    if (step === undefined) return undefined
+    if (step === undefined) return { reason: 'element not found in source' }
     const candidates = childElements(current).filter(child => tagOf(child) === step.tag)
     let next: Element | undefined
     if (step.id !== undefined) {
-      next = candidates.find(candidate => attrOf(candidate, 'id') === step.id)
+      const matches = candidates.filter(candidate => attrOf(candidate, 'id') === step.id)
+      if (matches.length > 1) return { reason: 'duplicate id in source' }
+      next = matches[0]
     } else if (step.nth !== undefined) {
       // `nth-of-type` counts among same-tag siblings, which is exactly the
-      // candidate list after the tag filter.
+      // candidate list after the tag filter. The frame emits it only when
+      // multiple siblings exist, so one source sibling means the DOM changed.
+      if (candidates.length < 2) return { reason: 'sibling count differs from preview' }
       next = candidates[step.nth - 1]
     } else {
+      if (candidates.length > 1) return { reason: 'ambiguous selector in source' }
       next = candidates[0]
     }
-    if (next === undefined) return undefined
+    if (next === undefined) return { reason: 'element not found in source' }
     found = next
     current = next
   }
-  return found
+  return found === undefined ? { reason: 'element not found in source' } : { element: found }
 }
 
 /**
- * Find an element by id anywhere in the tree, preferring one whose tag matches.
- *
- * Ids are unique in valid HTML, so the first match is the intended element; the
- * tag check is what keeps an invalid duplicate from silently misresolving.
+ * Find all elements with an id anywhere in the source tree. Duplicate ids are
+ * not safe anchors, even when only one match has the selector's tag.
  * @param root - subtree to search.
  * @param id - the id to match.
- * @param tag - the tag the selector step named.
- * @returns the matching element, or `undefined`.
+ * @returns every matching element.
  */
-function findById(root: Node, id: string, tag: string): Element | undefined {
-  let fallback: Element | undefined
-  const visit = (node: Node): Element | undefined => {
+function findById(root: Node, id: string): Element[] {
+  const matches: Element[] = []
+  const visit = (node: Node): void => {
     for (const child of childElements(node)) {
-      if (attrOf(child, 'id') === id) {
-        if (tagOf(child) === tag) return child
-        fallback ??= child
-      }
-      const deeper = visit(child)
-      if (deeper !== undefined) return deeper
+      if (attrOf(child, 'id') === id) matches.push(child)
+      visit(child)
     }
-    return undefined
   }
-  return visit(root) ?? fallback
+  visit(root)
+  return matches
 }
 
 /**
  * Apply the reviewer's edits to an HTML source.
  *
  * Edits are applied as non-overlapping span replacements, so an edit that
- * rewrites one element's `style` attribute cannot disturb another's offsets.
+ * rewrites one element cannot disturb another's offsets. Deleting an element
+ * supersedes style, text, and nested deletion requests for that subtree.
  * A selector that does not resolve in source is reported, never silently
  * dropped, because the reviewer needs to know an edit did not reach the file.
  * @param source - the complete HTML source text.
  * @param edits - the reviewer's style edits, in application order.
  * @param textEdits - element text replacements, keyed by selector.
+ * @param deletions - elements to remove, with the text and class tokens observed in the preview.
  * @returns the rewritten source plus what was applied and skipped.
  */
 export function applySourceEdits(
   source: string,
   edits: readonly ElementEdit[],
   textEdits: Readonly<Record<string, string>> = {},
+  deletions: readonly ElementDeletion[] = [],
 ): SourceEditResult {
-  if (edits.length === 0 && Object.keys(textEdits).length === 0) {
+  if (edits.length === 0 && Object.keys(textEdits).length === 0 && deletions.length === 0) {
     return { source, applied: [], skipped: [] }
   }
   // parse5 records source offsets in `sourceCodeLocation`; without them a
   // rewrite cannot address the original text.
   const document = parse(source, { sourceCodeLocationInfo: true })
-  const replacementFor = new Map<string, Replacement[]>()
+  const requested: RequestedReplacement[] = []
   const skipped: { selector: string; reason: string }[] = []
 
+  const deletionSelectors = new Set(deletions.map(deletion => deletion.selector))
+  const locatedDeletions: { selector: string; element: Element; replacement: Replacement }[] = []
+  for (const deletion of deletions) {
+    const { selector } = deletion
+    const steps = parseSelector(selector)
+    if (steps === undefined) {
+      skipped.push({ selector, reason: 'unsupported selector grammar' })
+      continue
+    }
+    const located = locate(document, steps)
+    if (located.element === undefined) {
+      skipped.push({ selector, reason: located.reason })
+      continue
+    }
+    const element = located.element
+    if (tagOf(element) === 'html' || tagOf(element) === 'head' || tagOf(element) === 'body') {
+      skipped.push({ selector, reason: 'document structure cannot be deleted' })
+      continue
+    }
+    if (normalizedElementText(element) !== deletion.text
+      || !sameClasses(element, deletion.classes)) {
+      skipped.push({ selector, reason: 'element fingerprint differs from source' })
+      continue
+    }
+    if (steps.some(step => step.nth !== undefined)
+      && matchingFingerprints(document, element, deletion).length !== 1) {
+      skipped.push({ selector, reason: 'element fingerprint is not unique in source' })
+      continue
+    }
+    const replacement = deletionReplacement(source, element)
+    if (replacement === undefined) {
+      skipped.push({ selector, reason: 'element has no source span' })
+      continue
+    }
+    locatedDeletions.push({ selector, element, replacement })
+  }
+
+  // An ancestor's source span includes every descendant's span. Group nested
+  // requests so each selector is reported applied when that ancestor is removed.
+  locatedDeletions.sort((left, right) => left.replacement.start - right.replacement.start
+    || right.replacement.end - left.replacement.end)
+  const deletionGroups: { element: Element; replacement: Replacement; selectors: string[] }[] = []
+  for (const deletion of locatedDeletions) {
+    const covering = deletionGroups.find(group => deletion.replacement.start >= group.replacement.start
+      && deletion.replacement.end <= group.replacement.end)
+    if (covering !== undefined) {
+      covering.selectors.push(deletion.selector)
+      continue
+    }
+    deletionGroups.push({ element: deletion.element, replacement: deletion.replacement, selectors: [deletion.selector] })
+  }
+  for (const { replacement, selectors } of deletionGroups) requested.push({ replacement, selectors })
+  const deletedElements = new Set(deletionGroups.map(group => group.element))
+
   for (const edit of edits) {
+    if (deletionSelectors.has(edit.selector)) continue
     const steps = parseSelector(edit.selector)
     if (steps === undefined) {
       skipped.push({ selector: edit.selector, reason: 'unsupported selector grammar' })
       continue
     }
-    const element = locate(document as unknown as Node, steps)
-    if (element === undefined) {
-      skipped.push({ selector: edit.selector, reason: 'element not found in source' })
+    const located = locate(document as unknown as Node, steps)
+    if (located.element === undefined) {
+      skipped.push({ selector: edit.selector, reason: located.reason })
       continue
     }
+    const element = located.element
+    if (insideDeletedElement(element, deletedElements)) continue
     const location = element.sourceCodeLocation
     if (location === undefined || location === null) {
       skipped.push({ selector: edit.selector, reason: 'element has no source location' })
@@ -247,44 +324,99 @@ export function applySourceEdits(
       skipped.push({ selector: edit.selector, reason: 'no declarations to apply' })
       continue
     }
-    const list = replacementFor.get(edit.selector) ?? []
-    list.push(styleReplacement(source, element, location, declarations))
-    replacementFor.set(edit.selector, list)
+    requested.push({ selectors: [edit.selector], replacement: styleReplacement(source, element, location, declarations) })
   }
 
   for (const [selector, value] of Object.entries(textEdits)) {
+    if (deletionSelectors.has(selector)) continue
     const steps = parseSelector(selector)
     if (steps === undefined) {
       skipped.push({ selector, reason: 'unsupported selector grammar' })
       continue
     }
-    const element = locate(document as unknown as Node, steps)
-    if (element === undefined) {
-      skipped.push({ selector, reason: 'element not found in source' })
+    const located = locate(document as unknown as Node, steps)
+    if (located.element === undefined) {
+      skipped.push({ selector, reason: located.reason })
       continue
     }
-    const replacement = textReplacement(source, element, value)
+    if (insideDeletedElement(located.element, deletedElements)) continue
+    const replacement = textReplacement(source, located.element, value)
     if (replacement === undefined) {
       skipped.push({ selector, reason: 'element has no editable text' })
       continue
     }
-    replacementFor.set(selector, [...replacementFor.get(selector) ?? [], replacement])
+    requested.push({ selectors: [selector], replacement })
   }
 
-  const replacements = [...replacementFor.values()].flat().sort((left, right) => left.start - right.start)
-  const applied: string[] = []
+  requested.sort((left, right) => left.replacement.start - right.replacement.start)
+  const applied = new Set<string>()
   let out = ''
   let cursor = 0
-  for (const replacement of replacements) {
-    // Overlapping spans would corrupt the document; keep the first and report
-    // the rest rather than emitting a broken file.
-    if (replacement.start < cursor) continue
+  let previousStart = -1
+  for (const { selectors, replacement } of requested) {
+    // Insertions have equal start and end offsets, so cursor alone does not
+    // catch duplicate edits to the same start tag.
+    if (replacement.start < cursor || replacement.start === previousStart) {
+      for (const selector of selectors) skipped.push({ selector, reason: 'overlapping source edits' })
+      continue
+    }
     out += source.slice(cursor, replacement.start) + replacement.text
     cursor = replacement.end
+    previousStart = replacement.start
+    for (const selector of selectors) applied.add(selector)
   }
   out += source.slice(cursor)
-  for (const selector of replacementFor.keys()) applied.push(selector)
-  return { source: out, applied, skipped }
+  return { source: out, applied: [...applied], skipped }
+}
+
+/** Remove exactly one authored element span, including its descendants. */
+function deletionReplacement(source: string, element: Element): Replacement | undefined {
+  const location = element.sourceCodeLocation
+  if (location === undefined || location === null
+    || location.startOffset < 0 || location.endOffset <= location.startOffset
+    || location.endOffset > source.length) return undefined
+  return { start: location.startOffset, end: location.endOffset, text: '' }
+}
+
+/** Whether the element is covered by a deletion of itself or an ancestor. */
+function insideDeletedElement(element: Element, deleted: ReadonlySet<Element>): boolean {
+  let current: Node | null = element
+  while (current !== null) {
+    if (isElement(current) && deleted.has(current)) return true
+    current = 'parentNode' in current ? current.parentNode : null
+  }
+  return false
+}
+
+/** Browser textContent with runs of whitespace collapsed for source comparison. */
+function normalizedElementText(element: Element): string {
+  const parts: string[] = []
+  const visit = (node: Node): void => {
+    if (isText(node)) parts.push(node.value)
+    else if ('childNodes' in node) for (const child of node.childNodes) visit(child)
+  }
+  visit(element)
+  return parts.join('').replace(/\s+/gu, ' ').trim()
+}
+
+/** Compare DOM classList tokens with the authored class attribute. */
+function sameClasses(element: Element, classes: readonly string[]): boolean {
+  const sourceClasses = [...new Set((attrOf(element, 'class') ?? '').split(/\s+/u).filter(Boolean))]
+  return sourceClasses.length === classes.length && sourceClasses.every((value, index) => value === classes[index])
+}
+
+/** Find every source element with the same fingerprint as a positional target. */
+function matchingFingerprints(root: Node, target: Element, deletion: ElementDeletion): Element[] {
+  const matches: Element[] = []
+  const visit = (node: Node): void => {
+    for (const child of childElements(node)) {
+      if (tagOf(child) === tagOf(target) && normalizedElementText(child) === deletion.text
+        && sameClasses(child, deletion.classes)) matches.push(child)
+      visit(child)
+    }
+  }
+  visit(root)
+  return matches
 }
 
 /** Merge new declarations over an element's existing `style` attribute. */
@@ -343,18 +475,20 @@ function styleReplacement(
 /**
  * Build the span replacement that writes an element's text.
  *
- * Only a single-text-child element is rewritten: replacing an element with
- * nested markup would discard that markup, which is not what editing text in a
- * preview should mean.
+ * A text-only element's sole text child or the only non-whitespace direct text
+ * child is rewritten. Descendant elements and other direct whitespace nodes
+ * keep their authored bytes. Multiple meaningful direct text nodes are
+ * ambiguous and cannot be rewritten safely.
  */
 function textReplacement(source: string, element: Element, value: string): Replacement | undefined {
   const children: Node[] = 'childNodes' in element ? element.childNodes : []
-  const texts = children.filter(isText)
-  if (texts.length !== 1) return undefined
-  const text = texts[0] as TextNode
+  const directText = children.filter(isText)
+  const meaningful = directText.filter(node => node.value.trim() !== '')
+  const text = meaningful.length === 1 ? meaningful[0] : children.length === 1 ? directText[0] : undefined
+  if (text === undefined) return undefined
   const location = text.sourceCodeLocation
-  if (location === undefined || location === null) return undefined
-  void source
+  if (location === undefined || location === null || location.startOffset < 0
+    || location.endOffset <= location.startOffset || location.endOffset > source.length) return undefined
   return { start: location.startOffset, end: location.endOffset, text: escapeText(value) }
 }
 

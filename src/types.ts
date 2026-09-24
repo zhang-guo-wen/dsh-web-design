@@ -119,6 +119,16 @@ export interface DesignWriteResult {
   readonly edits: number
 }
 
+/** One source element selected for deletion, with its original DOM fingerprint. */
+export interface ElementDeletion {
+  /** Selector of the rendered element selected for removal. */
+  readonly selector: string
+  /** Complete element text with whitespace collapsed, captured before edits. */
+  readonly text: string
+  /** Original class tokens in DOM order. */
+  readonly classes: readonly string[]
+}
+
 /** Request to rewrite a previewed file from the reviewer's edits. */
 export interface DesignApplyRequest {
   /** Session-scoped preview address, resolved by the Host. */
@@ -127,6 +137,8 @@ export interface DesignApplyRequest {
   readonly edits: readonly ElementEdit[]
   /** Element text replacements, keyed by the frame's selector. */
   readonly textEdits: Readonly<Record<string, string>>
+  /** Elements to remove from the source, including their descendants. */
+  readonly deletions?: readonly ElementDeletion[]
 }
 
 /** Result of rewriting a previewed file. */

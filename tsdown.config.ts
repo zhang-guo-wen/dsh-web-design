@@ -1,11 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
 import { defineConfig } from 'tsdown'
 import ts from 'typescript'
-
-const root = dirname(fileURLToPath(import.meta.url))
-const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
 const DECORATOR_SYNTAX = /^\s*@[A-Za-z_$][\w$]*/m
 
@@ -44,9 +38,6 @@ export default defineConfig({
   outDir: 'lib',
   platform: 'node',
   dts: false,
-  // The Host half reports the version it installed so a stale copy is
-  // refreshed; inlining it keeps the runtime from reading a manifest.
-  define: { __PLUGIN_VERSION__: JSON.stringify(version) },
   // Every @deepseek-ai package is resolved from the running harness at load
   // time, so none of them may be inlined here.
   deps: { neverBundle: [/^@deepseek-ai\//] },

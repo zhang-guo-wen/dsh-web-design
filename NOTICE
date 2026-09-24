@@ -8,17 +8,3 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 This product is a plugin for DeepSeek Harness
 (https://github.com/deepseek-ai/deepseek-harness). It links against DeepSeek
 Harness packages as peer dependencies; no DeepSeek Harness source is included.
-
-The published package ships only the bundled design skills that carry an
-explicit license, each keeping its own LICENSE file beside it:
-
-  MIT License — design-taste-frontend, design-taste-frontend-v1,
-  emil-design-eng, gpt-taste, high-end-visual-design, image-to-code,
-  industrial-brutalist-ui, minimalist-ui, redesign-existing-projects,
-  review-animations, stitch-design-taste, web-clone, web-design-guidelines,
-  writing-guidelines
-
-  Apache License 2.0 — frontend-design
-
-Skills kept in the source tree without a license file are not redistributed:
-they are absent from the package's `files` list.
