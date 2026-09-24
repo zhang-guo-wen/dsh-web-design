@@ -1,83 +1,86 @@
 # dsh-web-design
 
-Web design for DeepSeek Harness: an HTML preview in the Sidebar for inspecting and editing page elements.
+English | [中文](README.zh.md)
 
-This is a standalone plugin. It bundles no `@deepseek-ai/*` code; harness services resolve from the running host, and the atomic file writer is a declared runtime dependency. It ships no skills either: the design skills a session uses are ordinary directories in the agent skills directory, installed by whatever put them there, and this plugin neither writes nor removes any of them.
+## Background: DeepSeek Harness
 
-## What it does
+DeepSeek Harness (`dsh`) is the open-source agent harness from DeepSeek AI, where nearly every capability is a plugin on [Cordis](https://github.com/cordiverse/cordis). It is in **developer preview** and iterating fast, so expect compatibility-breaking changes ([docs](https://deepseek-harness.github.io/deepseek-harness/), `0.1.7-alpha.*`); this plugin is a standalone third-party package that resolves `@deepseek-ai/*` from the running host.
 
-**Previews HTML in the Sidebar, with design tools.**
-Opening an `.html` file in the Sidebar shows the page immediately. A two-position switch changes between Preview and Edit without remounting the page. Preview leaves the page's buttons, links, and other click behavior active. In Edit, a single click selects an element and a double-click opens its floating editor without replacing the page. The frame confirms each mode switch before accepting another click, so a rapid click cannot activate the page under the wrong mode.
+## The problem this plugin solves
 
-The editor offers:
+There was no way to see a rendered HTML page and adjust it without leaving DSH; this plugin previews `.html` in the Sidebar, edits style, text, position and deletion, and writes the changes back into the source file.
 
-- **Edit element** — select Edit, single-click the exact element to highlight it, then double-click to open the dialog. For transparent controls covering label text, clicking the text selects the text leaf while clicking the surrounding option selects its box. The dialog's **Parent** action moves to the containing element, including a group whose border is too thin to target directly. The dialog opens beside the preview when space allows, or along the bottom of a narrow viewport. A draft immediately shows **Unsaved** in the toolbar; Cancel discards it.
-- **Move element** — drag the handle on the selected outline. Block elements move with CSS `translate`; inline text elements use relative `left`/`top` offsets because browsers do not translate ordinary inline boxes. Save in the dialog keeps the new position; Cancel restores the original inline declarations.
-- **Edit style** — change font size, weight, line height, letter spacing, color, background, padding, margin, and corner radius. Saved style overrides apply to the frame and persist with the review.
-- **Text edit** — an element with exactly one non-blank direct text node exposes that text in a field, even when it also has child elements. A parent container cannot replace the text of its descendants or guess between multiple direct text runs. The dialog header identifies the selected tag and CSS selector; compact **Parent** and **Copy** actions sit on the right. Copy puts the selected element's CSS selector on the clipboard so it can be shared for a precise change, including when the element has no editable direct text. Save in the dialog changes the frame and keeps the text replacement pending for the file write.
-- **Delete element** — remove the selected element and its descendants from the preview. The toolbar shows **Unsaved** until **Save to file** removes that exact element from the HTML source. **Undo deletion** restores all pending deletions before they reach the file. Document roots (`html`, `head`, and `body`) cannot be deleted.
-- **Save to file** — write the style, text, and deletion edits into the HTML file itself.
+## Screenshots
 
-### Writing edits back to the file
+![The Sidebar preview](docs/images/preview-hero.png)
+The Sidebar preview of an open `.html` file, with the **预览 / 编辑** switch and **保存到文件** in its toolbar.
 
-Editing in the preview changes the *rendered* page; **Save to file** is what changes the artifact. It is deliberately explicit, and it edits the source text in place rather than re-serializing the frame's DOM: by the time the preview is interactive the parser has normalized attributes and page scripts have added their own nodes, so a serialized dump would rewrite the whole file and discard comments, formatting, and authored structure.
-
-Each edit is therefore applied as a span rewrite. The selector the preview reported is resolved against the source's own element tree. Style and text edits replace only the located attribute or text node; deletion removes the located element's complete source span, including its children. An element with an existing `style` gains or updates declarations in place, keeping its other attributes and their order. Every other byte of the file is preserved. The write uses an atomic sibling replacement with bounded retries for temporary Windows file sharing errors.
-
-The result is reported honestly:
-
-- **Applied** — the selector reached the file.
-- **Skipped** — the selector could not be located uniquely in the source (for example the element is generated by a script, an id is duplicated, or a sibling path becomes ambiguous). The preview reports these instead of claiming success.
-
-Text replacement is limited to elements with one non-blank direct text node; child markup is preserved, and multiple direct text runs are refused. A successful file write clears the **Unsaved** status for the committed edit. Older sidecars may contain comments, which are retained when edits are saved, but the current preview has no comment or annotation controls.
-
-Pending deletions are replayed when the preview reloads. Before deleting from the source, the writer checks the element's original full text and class names; a positional selector also needs a unique matching fingerprint. A mismatch is reported as **Skipped**, leaving the source element intact. Once a deletion is written, style edits for that element and its descendants are removed from the review sidecar.
+![The element editor dialog](docs/images/modal-preview.png)
+The element editor dialog: the selected element's selector, its text, and the style fields it can write back.
 
 ## Install
 
 ```sh
-pnpm dsh plugin --profile web add C:/02-codespace/deepseek-harness/dsh-web-design
+npx @deepseek-ai/dsh plugin --profile web add @guowenzhang/dsh-web-design
 ```
 
-The profile adds the bundle and the `link:` dependency. Then **restart the host**: the host half is an in-process module, so a rebuilt `lib/index.mjs` is not swapped into a running process. The browser half is served by content revision — refreshing the page is enough for client changes.
+From the npm registry: <https://www.npmjs.com/package/@guowenzhang/dsh-web-design> — restart the host afterwards; local checkouts, git sources and troubleshooting are in [AGENTS.md](AGENTS.md).
 
-```sh
-pnpm dsh --profile web --dump-config | Select-String web-design   # confirm the composition
-```
+## Usage
 
-## Where the review is stored
+### Open an HTML file in the Sidebar
 
-Review state is a sidecar beside the reviewed file, named `<file>.design.json`. It travels with the artifact and is readable by the agent that owns it.
+Opening an `.html` or `.htm` file in the Sidebar renders the page in place of the static source view, running the file's own inline CSS and scripts.
 
-The Sidebar passes the file's Session address to the Host. The Host resolves its relative path against that Session's recorded working directory (or the configured workspace root when the Session has no cwd), checks that the file remains inside the Session workspace, and returns its absolute path before editing is enabled. The `file` field in the sidecar is that resolved absolute path. If the Session no longer exists or the path cannot be resolved, the page remains visible, but review saves and **Save to file** stay unavailable.
+### Switch between Preview and Edit
 
-```json
-{
-  "version": 1,
-  "file": "/workspace/index.html",
-  "comments": [],
-  "edits": [{ "selector": "main > section.hero > h1", "declarations": { "font-size": "56px" }, "updatedAt": "2026-09-22T10:01:00.000Z" }]
-}
-```
+The toolbar's two-position switch changes between **Preview** and **Edit** without remounting the page. **Preview** leaves the page's buttons, links, and other click behavior active, so the page works normally. In **Edit**, a single click selects an element and a double-click opens its floating editor without replacing the page. The frame confirms each mode switch before accepting another click, so a rapid click cannot activate the page under the wrong mode.
 
-The preview does not write the HTML file until **Save to file**. Style edits live in the sidecar and re-apply on load.
+### Edit element
 
-## Commands
+Select **Edit**, single-click the exact element to highlight it, then double-click to open the dialog. For transparent controls covering label text, clicking the text selects the text leaf while clicking the surrounding option selects its box. The dialog's **Parent** action moves to the containing element, including a group whose border is too thin to target directly. The dialog opens beside the preview when space allows, or along the bottom of a narrow viewport. A draft immediately shows **Unsaved** in the toolbar; **Cancel** discards it.
 
-```sh
-npm run typecheck
-npm run build         # host (tsdown) + client (__ModuleLoader__ handoff bundle)
-npm test              # host apply, sidecar round-trip, source edits, client registration
-```
+### Move element
 
-Rebuilding the client changes `lib/client.js`; bump `HANDOFF_ID` in `build-client.mjs` or hard-refresh the browser, otherwise the page keeps running the previous bundle.
+Drag the handle on the selected outline. Block elements move with CSS `translate`; inline text elements use relative `left`/`top` offsets, because browsers do not translate ordinary inline boxes. **Save** in the dialog keeps the new position; **Cancel** restores the original inline declarations.
 
-## Known limitations and deferred work
+### Edit style
+
+The dialog changes font size, weight, line height, letter spacing, color, background, padding, margin, and corner radius. A saved override applies to the frame immediately and persists with the review.
+
+### Text edit
+
+An element with exactly one non-blank direct text node exposes that text in a field, even when it also has child elements. A parent container cannot replace the text of its descendants or guess between multiple direct text runs. The dialog header identifies the selected tag and CSS selector; compact **Parent** and **Copy** actions sit on the right. **Copy** puts the selected element's CSS selector on the clipboard so it can be shared for a precise change, including when the element has no editable direct text. **Save** in the dialog changes the frame and keeps the text replacement pending for the file write.
+
+### Delete element
+
+**Delete element** removes the selected element and its descendants from the preview. The toolbar shows **Unsaved** until **Save to file** removes that exact element from the HTML source. **Undo deletion** restores all pending deletions before they reach the file. Document roots (`html`, `head`, and `body`) cannot be deleted.
+
+### Save to file
+
+**Save to file** writes the style, text, and deletion edits into the HTML file itself. Until then those edits live in a review file beside the artifact and re-apply on load; the preview never writes the HTML on its own.
+
+- **Applied** — the selector reached the file.
+- **Skipped** — the selector could not be located uniquely in the source (for example the element is generated by a script, an id is duplicated, or a sibling path becomes ambiguous). The preview reports these instead of claiming success.
+
+Text replacement is limited to elements with one non-blank direct text node; child markup is preserved, and multiple direct text runs are refused. A successful file write clears the **Unsaved** status for the committed edit.
+
+## Notes and caveats
 
 - **Relative page assets are not bundled into this preview.** HTML with inline CSS and scripts renders directly; links to sibling CSS, JavaScript, images, or fonts need a separate asset-loading path before they can appear in the isolated frame.
 - **Save to file cannot reach elements that only exist after page scripts run.** The selector is resolved against the source tree, so an element the page's JavaScript created is reported as skipped rather than written somewhere else.
 - **A script can reorder otherwise identical siblings.** A selector path alone cannot prove which authored sibling a moved DOM node came from when the sibling count remains the same. Use stable ids for elements whose edits must be written back; otherwise inspect the file after saving.
+- **Edits are applied as source-span rewrites, not a re-serialized DOM.** The file keeps its comments, formatting, and authored structure, and only the spans the edits locate are replaced.
+- **Every other byte of the file stays untouched.** A style or text edit replaces just the located attribute or text node, and a deletion removes that element's complete source span, including its children.
 
-## Model experience
+## License
 
-The plugin registers a Host Remote and a Sidebar body, and adds no prompt section, tool, or skill of its own, so a session's skill catalog is exactly what its skill directories contain. The Sidebar preview is presentation-only: review state lives in a file beside the artifact, and nothing the preview does reaches the model request unless the agent reads the sidecar.
+The plugin itself is Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). It contains no DeepSeek Harness source: the harness packages are peer dependencies resolved from the running host.
+
+Its runtime dependencies keep their own licenses: `parse5` is MIT, and `@deepseek-ai/dsh-atomic-write` is MIT.
+
+## Further reading
+
+- [AGENTS.md](AGENTS.md) — install variants, build, composition and deployment semantics, release, technical decisions, tests, and troubleshooting.
+- [dsh-ui-beautify](https://github.com/zhang-guo-wen/dsh-ui-beautify) — a sibling plugin that picks the harness body and code fonts.
+- [DeepSeek Harness documentation](https://deepseek-harness.github.io/deepseek-harness/).
