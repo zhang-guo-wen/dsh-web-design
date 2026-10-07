@@ -1,7 +1,7 @@
 {
   "name": "@guowenzhang/dsh-web-design",
   "description": "Web design for DeepSeek Harness: preview .html in the Sidebar, edit style, text, position and deletion, and write changes back to the file",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "license": "Apache-2.0",
   "publishConfig": {
