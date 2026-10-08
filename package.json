@@ -24,7 +24,8 @@
       "default": "./lib/client.js"
     },
     "./package.json": "./package.json",
-    "./cordis.patch.yml": "./cordis.patch.yml"
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*": "./locale/*"
   },
   "engines": {
     "dsh": ">=0.1.7-0"
@@ -48,6 +49,10 @@
     }
   },
   "files": [
+    "locale",
+    "README.md",
+    "README.zh.md",
+    "docs/images",
     "lib/index.mjs",
     "lib/client.js",
     "LICENSE",
@@ -55,6 +60,7 @@
     "cordis.patch.yml"
   ],
   "scripts": {
+    "test:metadata": "node --test tests/plugin-metadata.test.mjs",
     "build": "tsdown -c tsdown.config.ts && node build-client.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node tests/smoke.mjs && node tests/annotations.mjs && node tests/source-edit.mjs && vitest run"

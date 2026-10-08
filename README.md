@@ -8,6 +8,8 @@ AI-generated prototype pages often include descriptions and sections you never a
 
 This DeepSeek Harness plugin lets you delete sections and edit text directly in the HTML preview, adjust styles and positions, and save the changes to the HTML file—without asking the AI to make each change.
 
+In the plugin list, display names and descriptions follow the Harness language setting in English or Chinese (English is the default fallback); English names use the package name without its npm scope, Chinese names describe the purpose, and installation still uses the unchanged real package name.
+
 ## Screenshots
 
 ![Sidebar page preview](docs/images/preview-hero.png)
