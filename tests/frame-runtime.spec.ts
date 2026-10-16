@@ -415,6 +415,25 @@ describe('injected design frame', () => {
     expect(button.lastChild?.nodeType).toBe(8)
   })
 
+  it('reports the page scroll offset once and adopts a replayed one', () => {
+    const { dom, send, reported } = frame('<div id="tall" style="height: 4000px">Tall page</div>')
+    const scrollTo = vi.spyOn(dom.window, 'scrollTo').mockImplementation(() => {})
+    // JSDOM never scrolls, so the offset the browser would have is set directly.
+    Object.defineProperty(dom.window, 'scrollY', { configurable: true, value: 480 })
+
+    dom.window.dispatchEvent(new dom.window.Event('scroll'))
+    expect(reported('scroll')).toMatchObject([{ kind: 'scroll', x: 0, y: 480 }])
+
+    send({ kind: 'restoreScroll', x: 0, y: 480 })
+    expect(scrollTo).toHaveBeenCalledWith(0, 480)
+    // The replayed offset is adopted, so restoring does not echo back as a new report.
+    dom.window.dispatchEvent(new dom.window.Event('scroll'))
+    expect(reported('scroll')).toHaveLength(1)
+
+    send({ kind: 'restoreScroll', x: 0, y: 120 })
+    expect(scrollTo).toHaveBeenLastCalledWith(0, 120)
+  })
+
   it('keeps the drag handle outside a short selected element', () => {
     const { dom, send, reported } = frame('<strong id="count">1</strong>')
     send({ kind: 'mode', mode: 'inspect' })

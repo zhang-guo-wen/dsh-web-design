@@ -1,4 +1,9 @@
-/* The HTML page fills the preview tab. Editing and review tools float over it. */
+/* The reviewed page fills the preview tab; the tools are chrome over it.
+ *
+ * Geometry follows the host's document-preview pane: the toolbar is the pane's
+ * header row, the artboard is the file preview surface, and the segmented mode
+ * switch keeps the ui-primitives SegmentedControl geometry (28px segments in a
+ * 36px track, elevation-soft indicator) so the two controls read as one kit. */
 .preview {
   display: flex;
   flex-direction: column;
@@ -7,7 +12,7 @@
   height: 100%;
   min-height: 300px;
   color: var(--dsw-alias-label-primary);
-  font-family: var(--dsw-font-family, system-ui, sans-serif);
+  font: var(--dsw-font-s-14);
   white-space: normal;
   container-type: inline-size;
 }
@@ -20,62 +25,94 @@
   justify-content: space-between;
   gap: 8px 12px;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-2);
 }
 
 .toolbarEnd {
   display: flex;
+  flex: 0 1 auto;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
+/* In-flight state of the review read; the toolbar itself stays usable. */
+.busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+  white-space: nowrap;
+}
+
+.busy::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsw-alias-state-business-primary);
+  content: '';
+}
+
+/* Two-segment track: the same grid, gap, and indicator arithmetic as
+ * ui-primitives SegmentedControl.module.css, at a fixed count of two. */
 .modeSwitch {
   position: relative;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   flex: 0 0 auto;
+  gap: 2px;
   box-sizing: border-box;
   min-width: 158px;
-  padding: 3px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .modeSwitch::before {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: calc(50% - 3px);
-  height: calc(100% - 6px);
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-2);
-  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.13);
+  top: 4px;
+  left: 4px;
+  width: calc((100% - 10px) / 2);
+  height: calc(100% - 8px);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: var(--dsw-elevation-soft);
   content: '';
-  transition: transform 160ms ease;
+  pointer-events: none;
+  transition: transform var(--ds-transition-duration) var(--ds-ease-in-out);
 }
 
-.modeSwitch[data-mode='inspect']::before { transform: translateX(100%); }
+.modeSwitch[data-mode='inspect']::before { transform: translateX(calc(100% + 2px)); }
 
 .modeOption {
   position: relative;
   z-index: 1;
-  min-height: 30px;
-  padding: 0 14px;
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  font: var(--dsw-font-xs-13);
+  font-weight: 500;
+  white-space: nowrap;
 }
 
+.modeOption:hover:not(:disabled) { color: var(--dsw-alias-label-primary); }
 .modeOption[aria-pressed='true'] { color: var(--dsw-alias-label-primary); }
-.modeOption:focus-visible { outline: 2px solid var(--dsw-alias-label-primary); outline-offset: 2px; }
+.modeOption:disabled { opacity: 0.5; cursor: default; }
+
+.modeOption:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .modeSwitch::before { transition: none; }
@@ -98,6 +135,8 @@
   padding: 18px;
 }
 
+/* The artboard: no stroke of its own (the elevation carries the hairline), and
+ * the page's own paper, matching the core HTML preview's frame. */
 .frame {
   display: block;
   flex: 1 1 auto;
@@ -105,16 +144,137 @@
   height: 100%;
   min-width: 0;
   min-height: 0;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.13);
+  border: 0;
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: var(--dsw-elevation-soft);
 }
 
 .frame[data-frame-mode-ready='false'] {
   pointer-events: none;
 }
 
+/* First paint: the same rows the loaded preview shows, so nothing jumps when
+ * the frame arrives. */
+.skeletonToolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.skeletonBar {
+  height: 28px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-skeleton);
+}
+
+.skeletonBar:first-child { width: 158px; }
+.skeletonBar:last-child { width: 96px; }
+
+.skeletonStage {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 18px;
+}
+
+.skeletonFrame {
+  flex: 1 1 auto;
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-skeleton);
+}
+
+.skeletonBar,
+.skeletonFrame {
+  animation: skeletonPulse 1.4s var(--ds-ease-in-out) infinite;
+}
+
+@keyframes skeletonPulse {
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonBar,
+  .skeletonFrame { animation: none; }
+}
+
+/* Read by assistive tech only; the skeleton itself is decorative. */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Why the pane is empty and what to do next. */
+.status {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 24px;
+  color: var(--dsw-alias-label-secondary);
+  text-align: center;
+}
+
+.statusTitle {
+  color: var(--dsw-alias-state-error-primary);
+  font: var(--dsw-font-s-14);
+}
+
+.statusHint {
+  max-width: 46ch;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+}
+
+/* Outcome of the explicit file write: a band under the toolbar, never a modal. */
+.notice {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12);
+  overflow-wrap: anywhere;
+}
+
+.noticeText { min-width: 0; }
+
+.noticeHint {
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.notice[data-tone='error'] .noticeText { color: var(--dsw-alias-state-error-primary); }
+.notice[data-tone='warning'] .noticeText { color: var(--dsw-alias-state-warn-label); }
+.notice[data-tone='success'] .noticeText { color: var(--dsw-alias-state-success-primary); }
+
+.noticeAction { flex: 0 0 auto; }
+
+/* The element editor: a floating panel anchored beside the Sidebar by the
+ * component's own placement math, on the same dialog surface as Modal. */
 .editor {
   position: fixed;
   z-index: 1150;
@@ -122,13 +282,22 @@
   flex-direction: column;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 16px;
+  border: 0;
+  border-radius: var(--dsw-radius-panel);
   background: var(--dsw-alias-bg-layer-2);
-  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--dsw-elevation-prominent);
   color: var(--dsw-alias-label-primary);
-  font-family: var(--dsw-font-family, system-ui, sans-serif);
+  font: var(--dsw-font-s-14);
   white-space: normal;
+  animation: editorEnter var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+@keyframes editorEnter {
+  from { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor { animation: none; }
 }
 
 .editorHeader,
@@ -141,7 +310,11 @@
 }
 
 .editorHeader {
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.editorFooter {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
 .editorHeaderActions {
@@ -159,8 +332,7 @@
   background: transparent;
   color: var(--dsw-alias-label-primary);
   cursor: pointer;
-  font: inherit;
-  font-size: 12px;
+  font: var(--dsw-font-xxs-12);
   font-weight: 600;
   text-decoration: underline;
   text-decoration-color: var(--dsw-alias-border-l2);
@@ -169,7 +341,11 @@
 }
 
 .editorHeaderAction:hover { text-decoration-color: currentColor; }
-.editorHeaderAction:focus-visible { outline: 2px solid var(--dsw-alias-label-primary); outline-offset: 2px; }
+
+.editorHeaderAction:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 2px;
+}
 
 .editorIdentity {
   display: flex;
@@ -181,11 +357,12 @@
 
 .elementTag {
   flex: 0 0 auto;
-  padding: 4px 7px;
-  border-radius: 6px;
+  padding: 2px 6px;
+  border-radius: var(--dsw-radius-xs);
   background: var(--dsw-alias-interactive-bg-hover);
-  font-family: var(--dsw-font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12);
+  font-family: var(--ds-font-family-code);
   font-weight: 700;
 }
 
@@ -193,8 +370,8 @@
   min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-secondary);
-  font-family: var(--dsw-font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  font: var(--dsw-font-xxs-12);
+  font-family: var(--ds-font-family-code);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -202,7 +379,7 @@
 .locatorLabel {
   flex: 0 0 auto;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
+  font: var(--dsw-font-xxs-12);
 }
 
 .editorScroll {
@@ -213,10 +390,6 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 16px;
-}
-
-.editorFooter {
-  border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
 .footerSpace {
@@ -243,8 +416,8 @@
   gap: 6px;
   margin: 0;
   color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  font-weight: 650;
+  font: var(--dsw-font-xxs-12);
+  font-weight: 600;
 }
 
 .meta {
@@ -252,7 +425,7 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: 3px 8px;
   margin: 0;
-  font-size: 12px;
+  font: var(--dsw-font-xxs-12);
 }
 
 .meta dt {
@@ -267,7 +440,32 @@
 .hint {
   margin: 0;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
+  font: var(--dsw-font-xxs-12);
+}
+
+/* The second style tier stays closed until asked for, so the panel opens on the
+ * fields a reviewer reaches for first. */
+.disclosure {
+  align-self: flex-start;
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: var(--dsw-font-xxs-12);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--dsw-alias-border-l2);
+  text-underline-offset: 3px;
+}
+
+.disclosure:hover { color: var(--dsw-alias-label-primary); }
+
+.disclosure:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 2px;
 }
 
 .fields {
@@ -285,43 +483,33 @@
 
 .fieldLabel {
   color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
+  font: var(--dsw-font-xxs-12);
 }
 
+/* Mirrors the ui-primitives Input surface: one step deeper than the panel. */
 .textInput {
   box-sizing: border-box;
   width: 100%;
   min-height: 78px;
   resize: vertical;
   padding: 8px 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-2);
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.45;
+  font: var(--dsw-font-s-14);
 }
 
-.notice {
-  margin: 0;
-  overflow-wrap: anywhere;
-  padding: 7px 12px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
+.textInput:focus-visible {
+  border-color: var(--dsw-alias-state-business-primary);
 }
 
-.status {
-  margin: 0;
-  padding: 12px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-}
-
+/* Narrow containers: the toolbar stacks and neither control keeps a min width. */
 @container (max-width: 430px) {
   .stage { padding: 8px; }
+  .skeletonStage { padding: 8px; }
+  .toolbar { align-items: stretch; }
+  .modeSwitch { min-width: 0; width: 100%; }
 }
 
 .editor[data-compact] .fields { grid-template-columns: minmax(0, 1fr); }
@@ -330,3 +518,22 @@
 .editor[data-compact] .editorFooter { flex-wrap: wrap; }
 .editor[data-compact] .footerSpace { flex-basis: 100%; height: 0; }
 .editor[data-compact] .editorScroll { padding: 12px; }
+
+/* A bottom sheet sits against the device edge, so it owns the safe-area inset. */
+.editor[data-placement='bottom'] {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Touch: every target reaches 44px and text fields stop iOS focus zoom. */
+@media (pointer: coarse) {
+  .modeOption { min-height: 44px; }
+  .toolbar button,
+  .editorHeaderAction,
+  .editorHeaderActions button,
+  .disclosure,
+  .editorFooter button { min-height: 44px; }
+  .editor input,
+  .editor textarea { font: var(--dsw-font-base-16); }
+  .textInput { min-height: 96px; }
+  .field > span:has(> input) { min-height: 44px; }
+}

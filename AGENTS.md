@@ -17,7 +17,7 @@
 - `src/client/` —— 浏览器半边：`index.ts`（挂 Remote、注册字典、文档预览与 `sidebar.right.tab.document` 座位）、`HtmlDesignBody.tsx`（工具栏、iframe、编辑弹窗）、`frame-runtime.ts`（注入被预览页面的运行时）、`document.ts`（组预览文档）、`store.ts`、`locales.ts`、`HtmlDesignBody.module.css`。
 - `lib/index.mjs` + `lib/client.js` —— 构建产物：**已提交进仓库**，这样别人可以直接从 git 安装。改完源码**记得 `npm run build` 并把 `lib/` 一起提交**。
 - `cordis.patch.yml` —— 把插件行插入组合的 bundle 层。
-- `tests/` —— 三个 `node` 断言脚本（`smoke.mjs` / `annotations.mjs` / `source-edit.mjs`）与三个 vitest 套件（`client-apply.spec.ts` / `client-preview.spec.ts` / `frame-runtime.spec.ts`）。
+- `tests/` —— 三个 `node` 断言脚本（`smoke.mjs` / `annotations.mjs` / `source-edit.mjs`）与四个 vitest 套件（`client-apply.spec.ts` / `client-preview.spec.ts` / `client-render-cost.spec.ts` / `frame-runtime.spec.ts`）。
 - `demo/` —— 两份可打开的示例页面（`landing.html`、`modal-layout.html`）与一份示例 sidecar `landing.html.design.json`；截图只在 `docs/images/` 里存一份。
 
 ## 构建
@@ -167,6 +167,24 @@ npx @deepseek-ai/dsh --profile web --dump-config | Select-String web-design
 
 预览把文件字节按 UTF-8 解出后注入运行时脚本（没有 `<body>` 就追加），再以 Blob URL 装进 iframe；sandbox 是 `allow-scripts allow-forms allow-popups allow-modals`，**没有 `allow-same-origin`**，被预览的页面因此拿到不透明源：读不到宿主文档、cookie 与存储，只能通过 `postMessage` 跟运行时说话。
 
+这层隔离也意味着注入的帧 chrome（悬停轮廓、选中框、拖动把手）拿不到宿主 token：它们写在**另一个文档**里，`body` 上的 `--dsw-*` 变量不会继承进去，所以那里的颜色是字面量。这是本仓 CSS 规范的一处已知例外，改动时不要把宿主 token 写进去（会解析成空值）。
+
+### 悬停不进渲染路径，刷新保留页面滚动
+
+帧运行时自己画悬停轮廓，预览组件**不订阅** `hover`：`HtmlDesignBody` 的 message 分支里显式忽略它。它曾经写进客户端 store，指针每跨过一个元素就提交整棵预览子树——而没有任何渲染读到那个值。`tests/client-render-cost.spec.ts` 用 React Profiler 把这条守住（修复前 jsdom 实测 120 个目标 = 120 次 commit，修复后 0 次）。
+
+帧另外把**被预览页面自身**的滚动偏移按帧节流上报（`scroll`）；刷新（`reloadToken` 变化导致 iframe 重挂）后，父组件在新帧 `ready` 时用 `restoreScroll` 回放，读者不会被打回页首，换文件时偏移归零。编辑弹窗的滚动位置也存在组件里，重新打开时恢复。删掉任一侧的消息处理，滚动保留就静默失效。
+
+### 预览的加载与失败态
+
+首屏用与加载后同形的骨架（`--dsw-alias-bg-skeleton`，只动 `opacity`，`prefers-reduced-motion` 下关闭）；评审读取中工具栏显示局部 busy 并带 `aria-busy`；`Save to file` 的进行中/成功/失败由工具栏 Tag、按钮文案与结果带（`Notice`，唯一 `role="alert"`）共同表达。失败一律保留数据并给出唯一可用的恢复动作（重读评审 / 重写评审 / 重写文件），`resolveFile` 失败时保存与写入保持禁用。
+
+### 编辑面板的两级字段与停靠偏好
+
+样式字段分两级：字号/字重/文字颜色/背景色常显，行高/字距/内边距/外边距/圆角收在「更多样式」按钮（`aria-expanded` + `aria-controls`）后面；只要草稿或已存评审里第二级字段有值，该级就自动展开，已保存的修改不会被藏起来。
+
+编辑面板的位置由 `placeEditor(stage, docked)` 算：默认 `auto`（有空间就贴在 Sidebar 旁，否则落成底部面板），`data-placement` 会让位给评审自己的选择。停靠偏好经 inject 面的 `readEditorDock`/`writeEditorDock` 读写，实现在 `src/client/index.ts` 里用 `localStorage`（键 `dsh-web-design.editor-dock`）——它是**评审的偏好**而不是文件状态，所以不进 per-document 的 review store，也不用 store 的 `persist`（那会连 `document`/`selected` 一起持久化）。「改为浮动」就是恢复自动的入口。
+
 ## Sidecar
 
 评审状态是预览文件旁边的 `<file>.design.json`（`SIDECAR_SUFFIX`），**随产物走**。字段：
@@ -198,8 +216,9 @@ npm test   # 三个 node 断言脚本 + vitest run
 - `tests/annotations.mjs` —— sidecar 往返与拒绝路径：`validateWrite`、`readAnnotations` / `writeAnnotations`、`sidecarPath`，以及错 `file`、错 `version`、超限载荷。
 - `tests/source-edit.mjs` —— 源编辑不碰无关字节、也不谎报成功：样式增改、文本替换、删除 span、selector 定位失败与重叠。
 - `tests/client-apply.spec.ts`（jsdom）—— 浏览器半边的注册：文档预览声明、`sidebar.right.tab.document` 座位、字典、卸载。
-- `tests/client-preview.spec.ts`（jsdom + Testing Library）—— 预览与编辑弹窗的交互。
-- `tests/frame-runtime.spec.ts`（JSDOM）—— 注入运行时的消息协议与选择/移动行为。
+- `tests/client-preview.spec.ts`（jsdom + Testing Library）—— 预览与编辑弹窗的交互，含加载失败重试、部分写入的结果带与滚动回放。
+- `tests/client-render-cost.spec.ts`（jsdom + React Profiler）—— 预览的渲染成本：指针跨元素不得提交预览子树。
+- `tests/frame-runtime.spec.ts`（JSDOM）—— 注入运行时的消息协议与选择/移动行为，含滚动上报与回放。
 
 `vitest.config.ts` 把 UI 套件与 CSS Modules 打桩，所以这些是**注册与行为测试**，不是 UI kit 的渲染测试。`lib/` 提交进仓库的代价是：改了 `src/` 却忘了 `npm run build` 时，`tests/smoke.mjs` / `annotations.mjs` / `source-edit.mjs` 断言的是**旧产物**——先构建再测。
 

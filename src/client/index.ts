@@ -41,7 +41,7 @@ import type {
   ElementEdit,
 } from '../types.ts'
 import { HtmlDesignBody } from './HtmlDesignBody.tsx'
-import type { DesignStore } from './HtmlDesignBody.tsx'
+import type { DesignStore, EditorDock } from './HtmlDesignBody.tsx'
 import { NS, en, zh } from './locales.ts'
 import type { DesignLocaleKey } from './locales.ts'
 import { createDesignStore } from './store.ts'
@@ -59,6 +59,40 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 /** Implementation identity, shared by the registry entry and the keyed slot. */
 export const HTML_DESIGN_ID = '@guowenzhang/dsh-web-design/html'
+
+/** Where the reviewer's editor dock preference is remembered. */
+const EDITOR_DOCK_KEY = 'dsh-web-design.editor-dock'
+
+/**
+ * Read the remembered editor dock.
+ *
+ * The preference belongs to the reviewer, not to the reviewed file, so it lives
+ * in browser storage rather than in the per-document review store. Absent or
+ * unreadable storage (a sandboxed or private profile) falls back to `auto`.
+ * @returns the stored dock, or `'auto'`.
+ */
+export function readEditorDock(): EditorDock {
+  try {
+    return window.localStorage.getItem(EDITOR_DOCK_KEY) === 'bottom' ? 'bottom' : 'auto'
+  } catch (error) {
+    // Storage can be denied outright; the preview still works with the default.
+    void error
+    return 'auto'
+  }
+}
+
+/**
+ * Remember the editor dock for the next session.
+ * @param dock - the preference to store.
+ */
+export function writeEditorDock(dock: EditorDock): void {
+  try {
+    window.localStorage.setItem(EDITOR_DOCK_KEY, dock)
+  } catch (error) {
+    // A preference that cannot be stored is not worth failing a review over.
+    void error
+  }
+}
 
 /** Required browser services: the slot registry, the document registry, copy, and the Remote. */
 export const inject = ['slots', 'locale', 'documentPreviews', 'remote']
@@ -124,6 +158,8 @@ export async function apply(ctx: Context): Promise<void> {
         applyToFile: async (request: DesignApplyRequest): Promise<DesignApplyResult> =>
           await unwrapRemote(() => namespace().apply(request)),
         fileRefOf,
+        readEditorDock,
+        writeEditorDock,
       }),
     },
     HtmlDesignBody,

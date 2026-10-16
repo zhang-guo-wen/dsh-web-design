@@ -197,6 +197,9 @@ describe('web-design preview registration', () => {
     expect(injected?.loadReview).toBeTypeOf('function')
     expect(injected?.saveReview).toBeTypeOf('function')
     expect(injected?.applyToFile).toBeTypeOf('function')
+    // The reviewer's editor dock is a browser preference, not review state.
+    expect(injected?.readEditorDock).toBeTypeOf('function')
+    expect(injected?.writeEditorDock).toBeTypeOf('function')
     const file = fileRefOf('dsh-resource://file/session/s1/w/index.html')
     expect(file).toEqual({ sessionId: 's1', path: 'w/index.html' })
     if (file === undefined) throw new Error('Session file reference did not parse')

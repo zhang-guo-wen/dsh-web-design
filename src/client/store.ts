@@ -7,6 +7,10 @@
  * subscribes instead of mirroring, and it is created per registration so two
  * previewed files never share state.
  *
+ * The element under the pointer is deliberately absent: the frame draws its own
+ * hover outline, nothing the preview renders depends on it, and pointer-rate
+ * writes here would commit the whole preview subtree per crossed element.
+ *
  * @module @guowenzhang/dsh-web-design/client/store
  */
 
@@ -16,14 +20,6 @@ import type { DesignAnnotationDocument, ElementCommentAnchor, ElementEdit } from
 
 /** Which pointer behavior the preview is in. */
 export type DesignMode = 'browse' | 'inspect'
-
-/** What the preview shows about the element under the pointer. */
-export interface HoveredElement {
-  /** Selector of the hovered element. */
-  readonly selector: string
-  /** Element tag name. */
-  readonly tag: string
-}
 
 /**
  * Declared store state.
@@ -38,8 +34,6 @@ export interface DesignStoreState {
   selectedSelector: string | null
   /** Metadata for the selected element, or `null`. */
   selected: ElementCommentAnchor | null
-  /** Element currently under the pointer, or `null`. */
-  hovered: HoveredElement | null
   /** Complete review document loaded for this file. */
   document: DesignAnnotationDocument | null
   /** Whether the loaded document is on the Host. */
@@ -70,8 +64,6 @@ interface DesignStoreActions {
   [key: string]: (draft: DesignStoreState, ...params: any[]) => void
   /** Switch pointer mode, closing the editor when returning to preview. */
   setMode: (draft: DesignStoreState, mode: DesignMode) => void
-  /** Record the element under the pointer. */
-  setHovered: (draft: DesignStoreState, hovered: HoveredElement | null) => void
   /** Select an element and its metadata. */
   select: (draft: DesignStoreState, anchor: ElementCommentAnchor | null) => void
   /** Replace the loaded review document. */
@@ -111,7 +103,6 @@ export function createDesignStore(file: string): EngineStoreHandle<DesignStoreSt
       mode: 'browse',
       selectedSelector: null,
       selected: null,
-      hovered: null,
       document: null,
       loading: true,
       dirty: false,
@@ -125,7 +116,6 @@ export function createDesignStore(file: string): EngineStoreHandle<DesignStoreSt
         state.mode = mode
         if (mode !== 'inspect') state.open = false
       },
-      setHovered: (state, hovered) => { state.hovered = hovered },
       select: (state, anchor) => {
         state.selected = anchor
         state.selectedSelector = anchor?.selector ?? null

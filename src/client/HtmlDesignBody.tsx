@@ -9,11 +9,13 @@
  *
  * The component holds no subscriptions of its own: the store reaches it through
  * the framework's `useStore` seat, and everything else is owner or inject data.
+ * The element under the pointer is not routed through the store: the frame
+ * paints its hover outline itself, so hover stays out of the render path.
  *
  * @module @guowenzhang/dsh-web-design/client/HtmlDesignBody
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Button, Input, Tag, Tooltip, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -24,11 +26,20 @@ import { buildPreviewDocument } from './document.ts'
 import { CHANNEL } from './frame-runtime.ts'
 import type { FrameAnchor, FrameToParent } from './frame-runtime.ts'
 import { createDesignStore } from './store.ts'
-import type { DesignMode } from './store.ts'
+import type { DesignMode, DesignStoreState } from './store.ts'
 import css from './HtmlDesignBody.module.css'
 
 /** The store handle type this preview is registered with. */
 export type DesignStore = ReturnType<typeof createDesignStore>
+
+/**
+ * Where the editor panel sits.
+ *
+ * `auto` keeps it beside the preview when the viewport has room and drops it to
+ * a bottom sheet when it does not; `bottom` is the reviewer's own choice to
+ * always keep the preview's upper half uncovered.
+ */
+export type EditorDock = 'auto' | 'bottom'
 
 /** Host-bound callbacks the plugin supplies through the slot's inject face. */
 export interface HtmlDesignBodyInjected {
@@ -57,6 +68,16 @@ export interface HtmlDesignBodyInjected {
    * @returns the Session and path, or `undefined` when the address is not session-scoped.
    */
   readonly fileRefOf: (address: string) => DesignFileRef | undefined
+  /**
+   * Read the reviewer's remembered editor dock.
+   * @returns the stored preference, or `'auto'` when none is stored.
+   */
+  readonly readEditorDock: () => EditorDock
+  /**
+   * Remember the reviewer's editor dock for the next session.
+   * @param dock - the preference to store.
+   */
+  readonly writeEditorDock: (dock: EditorDock) => void
 }
 
 /** Props the framework derives for the document slot. */
@@ -68,21 +89,34 @@ export type HtmlDesignBodyProps =
 
 const MODES: readonly DesignMode[] = ['browse', 'inspect']
 
-/** Editable style properties, with the locale key naming each one. */
+/** Editable style properties, with the locale key naming each one.
+ *
+ * `tier` splits the two levels the editor shows: the fields a reviewer reaches
+ * for on nearly every element stay in the open grid, and the rest sit behind a
+ * disclosure. A stored edit in the second tier forces it open, so a saved value
+ * is never hidden. */
 const STYLE_FIELDS: readonly {
   readonly key: string
   readonly label: 'fontSize' | 'fontWeight' | 'lineHeight' | 'letterSpacing' | 'color' | 'background' | 'padding' | 'margin' | 'borderRadius'
+  readonly tier: 'primary' | 'advanced'
 }[] = [
-  { key: 'font-size', label: 'fontSize' },
-  { key: 'font-weight', label: 'fontWeight' },
-  { key: 'line-height', label: 'lineHeight' },
-  { key: 'letter-spacing', label: 'letterSpacing' },
-  { key: 'color', label: 'color' },
-  { key: 'background-color', label: 'background' },
-  { key: 'padding', label: 'padding' },
-  { key: 'margin', label: 'margin' },
-  { key: 'border-radius', label: 'borderRadius' },
+  { key: 'font-size', label: 'fontSize', tier: 'primary' },
+  { key: 'font-weight', label: 'fontWeight', tier: 'primary' },
+  { key: 'color', label: 'color', tier: 'primary' },
+  { key: 'background-color', label: 'background', tier: 'primary' },
+  { key: 'line-height', label: 'lineHeight', tier: 'advanced' },
+  { key: 'letter-spacing', label: 'letterSpacing', tier: 'advanced' },
+  { key: 'padding', label: 'padding', tier: 'advanced' },
+  { key: 'margin', label: 'margin', tier: 'advanced' },
+  { key: 'border-radius', label: 'borderRadius', tier: 'advanced' },
 ]
+
+/** One editable style property, as the editor lists it. */
+type StyleField = typeof STYLE_FIELDS[number]
+
+/** The two disclosure levels, split once so both lists keep a stable identity. */
+const PRIMARY_STYLE_FIELDS = STYLE_FIELDS.filter(field => field.tier === 'primary')
+const ADVANCED_STYLE_FIELDS = STYLE_FIELDS.filter(field => field.tier === 'advanced')
 
 /** Placement of the editor in the visible application viewport. */
 interface EditorPlacement {
@@ -108,8 +142,19 @@ interface SelectedSource {
   readonly classes: readonly string[]
 }
 
-/** Keep an editing surface beside the Sidebar when space allows. */
-function placeEditor(stage: HTMLElement): EditorPlacement {
+/** Outcome of the explicit review or file write the toolbar reports. */
+interface FileWriteState {
+  readonly kind: 'idle' | 'saving' | 'saved' | 'partial' | 'failed'
+  readonly detail: string
+}
+
+/**
+ * Keep an editing surface beside the Sidebar when space allows.
+ * @param stage - the preview stage the panel is placed against.
+ * @param docked - whether the reviewer asked for the bottom sheet outright.
+ * @returns the fixed placement for the panel.
+ */
+function placeEditor(stage: HTMLElement, docked: boolean): EditorPlacement {
   const rect = stage.getBoundingClientRect()
   const visual = window.visualViewport
   const viewportLeft = visual?.offsetLeft ?? 0
@@ -125,7 +170,7 @@ function placeEditor(stage: HTMLElement): EditorPlacement {
   const minimumSideWidth = 260
   const maxHeight = Math.max(0, Math.min(560, viewportHeight - inset * 2))
 
-  if (leftRoom >= minimumSideWidth || rightRoom >= minimumSideWidth) {
+  if (!docked && (leftRoom >= minimumSideWidth || rightRoom >= minimumSideWidth)) {
     const side = leftRoom >= minimumSideWidth ? 'left' : 'right'
     const width = Math.min(480, side === 'left' ? leftRoom : rightRoom)
     const left = side === 'left' ? rect.left - gap - width : rect.right + gap
@@ -152,13 +197,15 @@ function placeEditor(stage: HTMLElement): EditorPlacement {
  * @returns the preview, or the loading and failure states.
  */
 export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
-  const { content, resourceAddress, useStore, loadReview, saveReview, applyToFile, fileRefOf, actions, t } = props
+  const { content, resourceAddress, useStore, loadReview, saveReview, applyToFile, fileRefOf, readEditorDock, writeEditorDock, actions, t } = props
   const state = useStore(selector => selector)
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const focusReturnRef = useRef<HTMLElement | null>(null)
   const [editorPlacement, setEditorPlacement] = useState<EditorPlacement | null>(null)
+  const [editorDock, setEditorDock] = useState<EditorDock>(readEditorDock)
   const [draftStyle, setDraftStyle] = useState<Record<string, string>>({})
+  const [advancedStylesOpen, setAdvancedStylesOpen] = useState(false)
   const [computed, setComputed] = useState<Record<string, string>>({})
   const [draftText, setDraftText] = useState('')
   const [editableText, setEditableText] = useState<string | null>(null)
@@ -176,10 +223,19 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
   const [textEdits, setTextEdits] = useState<Record<string, string>>({})
   const [pendingEdits, setPendingEdits] = useState(false)
   const editRevision = useRef(0)
-  const [fileWrite, setFileWrite] = useState<{ readonly kind: 'idle' | 'saving' | 'saved' | 'partial' | 'failed'; readonly detail: string }>({ kind: 'idle', detail: '' })
+  const [fileWrite, setFileWrite] = useState<FileWriteState>({ kind: 'idle', detail: '' })
   const [frameResource, setFrameResource] = useState<{ readonly source: string; readonly url: string } | null>(null)
   const [frameAppliedMode, setFrameAppliedMode] = useState<{ readonly source: string; readonly reloadToken: number; readonly mode: DesignMode } | null>(null)
   const [resolvedFile, setResolvedFile] = useState<{ readonly address: string; readonly path: string } | null>(null)
+  /** Bumped to re-run the review read after a failed load. */
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const editorScrollRef = useRef<HTMLDivElement | null>(null)
+  const editorScrollTop = useRef(0)
+  // Ids in a portaled panel are unique per mounted editor, not per document.
+  const advancedStylesId = useId()
+  // The reviewed page's own scroll offset, replayed into a refreshed frame so a
+  // reload does not move the reader to the top of the document.
+  const frameScroll = useRef<{ readonly x: number; readonly y: number }>({ x: 0, y: 0 })
   const documentRef = useRef(state.document)
   documentRef.current = state.document
 
@@ -254,8 +310,10 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
       setEditorPlacement(null)
       return
     }
+    // Reopen where the reviewer left the form, not at its first field.
+    if (editorScrollRef.current !== null) editorScrollRef.current.scrollTop = editorScrollTop.current
     let frame = 0
-    const update = (): void => { setEditorPlacement(placeEditor(stage)) }
+    const update = (): void => { setEditorPlacement(placeEditor(stage, editorDock === 'bottom')) }
     const schedule = (): void => {
       window.cancelAnimationFrame(frame)
       frame = window.requestAnimationFrame(update)
@@ -275,7 +333,7 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
       window.visualViewport?.removeEventListener('resize', schedule)
       window.visualViewport?.removeEventListener('scroll', schedule)
     }
-  }, [state.open])
+  }, [state.open, editorDock])
 
   // Push the active mode into the frame so its listeners match the switch.
   useEffect(() => {
@@ -307,6 +365,7 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
     setPendingEdits(false)
     editRevision.current = 0
     pendingMove.current = null
+    frameScroll.current = { x: 0, y: 0 }
     setFileWrite({ kind: 'idle', detail: '' })
     actions.load(null)
     actions.select(null)
@@ -332,7 +391,7 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
         setFileWrite({ kind: 'failed', detail: error instanceof Error ? error.message : String(error) })
       })
     return () => { active = false }
-  }, [fileRef, resourceAddress, loadReview, actions])
+  }, [fileRef, resourceAddress, loadReview, actions, loadAttempt])
 
   // Re-apply stored edits whenever the document reloads, so a saved style
   // survives a refresh of the reviewed document.
@@ -343,7 +402,7 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
     }
   }, [state.document, state.reloadToken])
 
-  // Receive hover, selection, and drag completion from the frame runtime.
+  // Receive selection and drag completion from the frame runtime.
   useEffect(() => {
     const listener = (event: MessageEvent): void => {
       if (event.source !== frameRef.current?.contentWindow) return
@@ -353,6 +412,8 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
       if (message.channel !== CHANNEL) return
       switch (message.kind) {
         case 'ready':
+          // A refreshed frame starts at the top; put the reader back first.
+          postToFrame(frameRef.current, { kind: 'restoreScroll', x: frameScroll.current.x, y: frameScroll.current.y })
           postToFrame(frameRef.current, { kind: 'mode', mode: state.mode, dragHandleLabel: t('dragHandle') })
           for (const edit of state.document?.edits ?? []) {
             postToFrame(frameRef.current, { kind: 'style', selector: edit.selector, declarations: edit.declarations })
@@ -371,12 +432,14 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
             setFrameAppliedMode({ source, reloadToken: state.reloadToken, mode: message.mode })
           }
           return
+        case 'scroll':
+          if (typeof message.x === 'number' && typeof message.y === 'number') {
+            frameScroll.current = { x: message.x, y: message.y }
+          }
+          return
         case 'hover':
-          actions.setHovered(
-            message.selector === null || message.selector === undefined || message.tag === null || message.tag === undefined
-              ? null
-              : { selector: message.selector, tag: message.tag },
-          )
+          // The frame draws the hover outline itself; keeping it out of the
+          // render path is what stops one commit per crossed element.
           return
         case 'select':
           if (message.anchor !== undefined) selectAnchor(message.anchor, false)
@@ -585,17 +648,95 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
     !sameDeclarations(previousStyle, cleanDeclarations(draftStyle))
     || editableText !== null && draftText !== editableText
   )
+
+  /** Render one editable style property; called inline so its inputs keep identity. */
+  const renderStyleField = (field: StyleField): ReactNode => (
+    <label key={field.key} className={css.field}>
+      <span className={css.fieldLabel}>{t(field.label)}</span>
+      <Input
+        value={draftStyle[field.key] ?? ''}
+        placeholder={computed[field.key] ?? ''}
+        onChange={(event: ChangeEvent<HTMLInputElement>) => {
+          const value = event.target.value
+          setDraftStyle(current => ({ ...current, [field.key]: value }))
+          setFileWrite({ kind: 'idle', detail: '' })
+        }}
+      />
+    </label>
+  )
+
+  // A stored value in the second tier keeps it open: a saved edit is never hidden.
+  const showAdvancedStyles = advancedStylesOpen
+    || ADVANCED_STYLE_FIELDS.some(field => (draftStyle[field.key] ?? '').trim() !== '')
+
   const statusDirty = state.dirty || draftDirty || pendingEdits || deletions.length > 0
   const rootSelected = /^(?:html|head|body)$/iu.test(state.selected?.tag ?? '')
   const frameInteractive = frameAppliedMode !== null && frameAppliedMode.source === source
     && frameAppliedMode.reloadToken === state.reloadToken && frameAppliedMode.mode === state.mode
 
-  if (content.kind !== 'bytes') return null
-  if (source === undefined) return <p className={css.status} role="alert">{t('failed')}</p>
-  if (frameResource?.source !== source) return <p className={css.status} role="status">{t('loading')}</p>
+  // Which recovery the visible failure offers, if any: re-read the review, write
+  // it back, or write the file again. Nothing is offered for a state the
+  // reviewer can only fix in the artifact itself.
+  const retryAction: 'load' | 'review' | 'file' | null = state.error !== null && hostPath !== undefined
+    ? 'review'
+    : fileWrite.kind === 'failed' && resolvedFile === null && fileRef !== undefined
+      ? 'load'
+      : (fileWrite.kind === 'failed' || fileWrite.kind === 'partial') && hostPath !== undefined && hasFileEdits
+        ? 'file'
+        : null
+
+  const retry = useCallback(() => {
+    switch (retryAction) {
+      case null: return
+      case 'load': setLoadAttempt(attempt => attempt + 1); return
+      case 'review': {
+        if (hostPath === undefined) return
+        const document = documentRef.current
+        if (document !== null) void persist(document)
+        return
+      }
+      case 'file': saveToFile()
+    }
+  }, [hostPath, persist, retryAction, saveToFile])
+
+  if (content.kind !== 'bytes') {
+    return (
+      <div className={css.preview}>
+        <p className={css.status} role="alert">
+          <span className={css.statusTitle}>{t('unavailable')}</span>
+          <span className={css.statusHint}>{t('unavailableHint')}</span>
+        </p>
+      </div>
+    )
+  }
+  if (source === undefined) {
+    return (
+      <div className={css.preview}>
+        <p className={css.status} role="alert">
+          <span className={css.statusTitle}>{t('failed')}</span>
+          <span className={css.statusHint}>{t('failedHint')}</span>
+        </p>
+      </div>
+    )
+  }
+  // First paint holds the loaded layout: toolbar row, then the artboard.
+  if (frameResource?.source !== source) {
+    return (
+      <div className={css.preview} aria-busy="true">
+        <div className={css.skeletonToolbar} aria-hidden="true">
+          <span className={css.skeletonBar} />
+          <span className={css.skeletonBar} />
+        </div>
+        <div className={css.skeletonStage} aria-hidden="true">
+          <span className={css.skeletonFrame} />
+        </div>
+        <span className={css.visuallyHidden} role="status">{t('loading')}</span>
+      </div>
+    )
+  }
 
   return (
-    <div className={css.preview} data-html-design-surface>
+    <div className={css.preview} data-html-design-surface aria-busy={state.loading ? 'true' : undefined}>
       <div className={css.toolbar}>
         <div className={css.modeSwitch} role="group" aria-label={t('modes')} data-mode={state.mode}>
           {MODES.map(mode => (
@@ -610,6 +751,7 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
           ))}
         </div>
         <div className={css.toolbarEnd}>
+          {state.loading && <span className={css.busy} role="status">{t('loadingReview')}</span>}
           {deletions.length > 0 && (
             <Tooltip label={t('undoDeletionsHint')}>
               <Button variant="ghost" size="sm" disabled={deleting || fileWrite.kind === 'saving'} onClick={undoDeletions}>{t('undoDeletions')}</Button>
@@ -632,11 +774,7 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
         </div>
       </div>
 
-      {(state.error !== null || fileWrite.kind === 'failed' || fileWrite.kind === 'partial' || fileWrite.kind === 'saved') && (
-        <p className={css.notice} role={state.error !== null || fileWrite.kind === 'failed' ? 'alert' : 'status'}>
-          {state.error ?? (fileWrite.kind === 'failed' ? fileWrite.detail : fileWrite.kind === 'partial' ? `${t('filePartial')}: ${fileWrite.detail}` : t('fileSaved'))}
-        </p>
-      )}
+      <Notice state={state} fileWrite={fileWrite} resolved={resolvedFile !== null} retry={retryAction === null ? undefined : retry} t={t} />
 
       <div className={css.workspace}>
         <div ref={stageRef} className={css.stage} data-html-design-stage>
@@ -660,6 +798,7 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
               className={css.editor}
               role="dialog"
               aria-label={t('editElement')}
+              aria-keyshortcuts="Escape"
               data-html-design-editor
               data-placement={editorPlacement.side}
               data-compact={editorPlacement.width < 390 ? '' : undefined}
@@ -689,10 +828,19 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
                   }}>{locatorCopy?.selector === state.selected.selector
                     ? t(locatorCopy.success ? 'locatorCopied' : 'locatorCopyFailed')
                     : t('copyLocator')}</button>
+                  <button type="button" className={css.editorHeaderAction} title={t('dockHint')} onClick={() => {
+                    const next: EditorDock = editorDock === 'bottom' ? 'auto' : 'bottom'
+                    setEditorDock(next)
+                    writeEditorDock(next)
+                  }}>{editorDock === 'bottom' ? t('dockAuto') : t('dockBottom')}</button>
                   <Button variant="ghost" size="sm" aria-label={t('closeEditor')} onClick={cancelEditor}>×</Button>
                 </div>
               </div>
-              <div className={css.editorScroll}>
+              <div
+                ref={editorScrollRef}
+                className={css.editorScroll}
+                onScroll={(event) => { editorScrollTop.current = event.currentTarget.scrollTop }}
+              >
                 <section className={css.section}>
                   <h3 className={css.sectionTitle}>{t('content')}</h3>
                   {editableText === null
@@ -710,21 +858,26 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
                 <section className={css.section}>
                   <h3 className={css.sectionTitle}>{t('styles')}</h3>
                   <div className={css.fields}>
-                    {STYLE_FIELDS.map(field => (
-                      <label key={field.key} className={css.field}>
-                        <span className={css.fieldLabel}>{t(field.label)}</span>
-                        <Input
-                          value={draftStyle[field.key] ?? ''}
-                          placeholder={computed[field.key] ?? ''}
-                          onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                            const value = event.target.value
-                            setDraftStyle(current => ({ ...current, [field.key]: value }))
-                            setFileWrite({ kind: 'idle', detail: '' })
-                          }}
-                        />
-                      </label>
-                    ))}
+                    {PRIMARY_STYLE_FIELDS.map(renderStyleField)}
                   </div>
+                  <button
+                    type="button"
+                    className={css.disclosure}
+                    aria-expanded={showAdvancedStyles}
+                    aria-controls={advancedStylesId}
+                    onClick={() => {
+                      // A stored advanced value keeps the group open, so this
+                      // only ever closes a group the reviewer opened.
+                      setAdvancedStylesOpen(!showAdvancedStyles)
+                    }}
+                  >
+                    {showAdvancedStyles ? t('lessStyles') : t('moreStyles')}
+                  </button>
+                  {showAdvancedStyles && (
+                    <div id={advancedStylesId} className={css.fields}>
+                      {ADVANCED_STYLE_FIELDS.map(renderStyleField)}
+                    </div>
+                  )}
                 </section>
                 <dl className={css.meta}>
                   <dt>{t('size')}</dt>
@@ -754,6 +907,61 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
 /** Post one message into the frame, tolerating a frame that is not mounted yet. */
 function postToFrame(frame: HTMLIFrameElement | null, message: Record<string, unknown>): void {
   frame?.contentWindow?.postMessage({ channel: CHANNEL, ...message }, '*')
+}
+
+/**
+ * The outcome band under the toolbar.
+ *
+ * It is the only place a failure is announced, so a failed review read, a
+ * failed review write, and a partially located file write never stack two
+ * notices. Every failure keeps the data it acted on and offers the one recovery
+ * that can help; the hint says what the state means and what happens next.
+ * @param props.state - store snapshot carrying the review-write failure.
+ * @param props.fileWrite - outcome of the explicit file write.
+ * @param props.resolved - whether the Host resolved this file for writing.
+ * @param props.retry - recovery for the visible failure, absent when none applies.
+ * @param props.t - locale lookup for this preview.
+ * @returns the band, or `null` when there is nothing to report.
+ */
+function Notice(props: {
+  readonly state: DesignStoreState
+  readonly fileWrite: FileWriteState
+  readonly resolved: boolean
+  readonly retry?: (() => void) | undefined
+  readonly t: HtmlDesignBodyProps['t']
+}): ReactNode {
+  const { state, fileWrite, resolved, retry, t } = props
+  let tone: 'error' | 'warning' | 'success'
+  let text: string
+  let hint: string
+  if (state.error !== null) {
+    tone = 'error'
+    text = state.error
+    hint = t('saveFailedHint')
+  } else if (fileWrite.kind === 'failed') {
+    tone = 'error'
+    text = fileWrite.detail
+    hint = t(resolved ? 'fileFailedHint' : 'loadFailedHint')
+  } else if (fileWrite.kind === 'partial') {
+    tone = 'warning'
+    text = `${t('filePartial')}: ${fileWrite.detail}`
+    hint = t('filePartialHint')
+  } else if (fileWrite.kind === 'saved') {
+    tone = 'success'
+    text = t('fileSaved')
+    hint = ''
+  } else {
+    return null
+  }
+  return (
+    <p className={css.notice} data-tone={tone} role={tone === 'error' ? 'alert' : 'status'}>
+      <span className={css.noticeText}>{text}</span>
+      {hint === '' ? null : <span className={css.noticeHint}>{hint}</span>}
+      {retry === undefined ? null : (
+        <Button variant="outline" size="sm" className={css.noticeAction} onClick={retry}>{t('retry')}</Button>
+      )}
+    </p>
+  )
 }
 
 /** Convert a frame-reported anchor into the stored shape. */

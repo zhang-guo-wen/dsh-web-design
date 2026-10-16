@@ -25,6 +25,7 @@ export type FrameToParent =
   | { readonly channel: typeof CHANNEL; readonly kind: 'edit'; readonly anchor: FrameAnchor }
   | { readonly channel: typeof CHANNEL; readonly kind: 'move'; readonly selector: string; readonly declarations: Readonly<Record<string, string>>; readonly restore: Readonly<Record<string, string>>; readonly anchor: FrameAnchor }
   | { readonly channel: typeof CHANNEL; readonly kind: 'removeResult'; readonly requestId: string; readonly selector: string; readonly success: boolean; readonly removedSelectors: readonly string[] }
+  | { readonly channel: typeof CHANNEL; readonly kind: 'scroll'; readonly x: number; readonly y: number }
   | { readonly channel: typeof CHANNEL; readonly kind: 'resize'; readonly height: number }
 
 /** Element metadata the frame reports on selection. */
@@ -62,6 +63,7 @@ export type ParentToFrame =
   | { readonly channel: typeof CHANNEL; readonly kind: 'removeSelected'; readonly selector: string; readonly requestId: string }
   | { readonly channel: typeof CHANNEL; readonly kind: 'replayRemoval'; readonly selector: string; readonly requestId: string }
   | { readonly channel: typeof CHANNEL; readonly kind: 'highlight'; readonly selectors: readonly string[] }
+  | { readonly channel: typeof CHANNEL; readonly kind: 'restoreScroll'; readonly x: number; readonly y: number }
   | { readonly channel: typeof CHANNEL; readonly kind: 'reset' }
 
 /**
@@ -115,6 +117,30 @@ function runtime(channel: string): void {
       // A frame detached mid-message has no parent to notify.
       void error
     }
+  }
+
+  // The reviewed window, typed locally: this function is compiled DOM-free and
+  // only ever runs inside the injected document.
+  const view = globalThis as {
+    scrollX?: number
+    scrollY?: number
+    scrollTo?(x: number, y: number): void
+    requestAnimationFrame?(callback: () => void): number
+  }
+
+  // The page's own scroll offset, reported at most once per frame and replayed
+  // by the parent after a reload so the reader keeps their place.
+  let reportedX = 0
+  let reportedY = 0
+  let scrollScheduled = false
+  const reportScroll = (): void => {
+    scrollScheduled = false
+    const x = Math.round(view.scrollX ?? 0)
+    const y = Math.round(view.scrollY ?? 0)
+    if (x === reportedX && y === reportedY) return
+    reportedX = x
+    reportedY = y
+    post({ kind: 'scroll', x, y })
   }
 
   /** Build a selector path that still resolves when ids repeat or need escaping. */
@@ -370,7 +396,10 @@ function runtime(channel: string): void {
     if (overlay !== null && box !== null) return
     overlay = doc.createElement('div')
     overlay.setAttribute('data-dsh-design-overlay', '')
-    overlay.style.cssText = 'position:absolute;z-index:2147483646;pointer-events:none;border:1px solid #4c8dff;background:rgba(76,141,255,0.12);border-radius:2px;transition:all 60ms linear;display:none'
+    // The outline tracks the pointer at pointer rate, so it carries no
+    // transition: animating left/top/width/height would smear it behind the
+    // cursor, and there is no other property to soften here.
+    overlay.style.cssText = 'position:absolute;z-index:2147483646;pointer-events:none;border:1px solid #4c8dff;background:rgba(76,141,255,0.12);border-radius:2px;display:none'
     box = doc.createElement('div')
     box.setAttribute('data-dsh-design-box', '')
     box.style.cssText = 'position:absolute;z-index:2147483647;pointer-events:none;border:2px solid #4c8dff;box-shadow:0 0 0 1px rgba(255,255,255,0.6) inset;display:none'
@@ -631,6 +660,16 @@ function runtime(channel: string): void {
         place(box as HTMLDivElement, first)
         return
       }
+      case 'restoreScroll': {
+        const payload = data as { x?: unknown; y?: unknown }
+        const x = typeof payload.x === 'number' ? payload.x : 0
+        const y = typeof payload.y === 'number' ? payload.y : 0
+        // Adopt the offset as reported so the replay does not echo back.
+        reportedX = x
+        reportedY = y
+        view.scrollTo?.(x, y)
+        return
+      }
       case 'reset':
         selected = null
         selectedSelector = null
@@ -643,6 +682,13 @@ function runtime(channel: string): void {
         return
     }
   })
+
+  globalThis.addEventListener('scroll', () => {
+    if (scrollScheduled) return
+    scrollScheduled = true
+    if (typeof view.requestAnimationFrame === 'function') view.requestAnimationFrame(reportScroll)
+    else reportScroll()
+  }, { passive: true })
 
   post({ kind: 'ready' })
 }
