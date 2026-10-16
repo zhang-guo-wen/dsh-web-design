@@ -4,7 +4,7 @@
 
 `lib/` 是提交进仓库的，所以**发版 = 改版本号 + 构建 + 提交产物 + 打 tag**。别人按 tag 安装，`master` 上的临时提交不会被他们拿到。
 
-1. 改根 `package.json` 的 `version`（当前 `1.0.1`，已有 tag `v1.0.0`）。
+1. 改根 `package.json` 的 `version`（当前 `1.1.1`，已有 tag `v1.0.0`、`v1.0.1`、`v1.0.2`、`v1.1.0`、`v1.1.1`）。
 2. `npm run build`，确认 `lib/index.mjs` 与 `lib/client.js` 是最新的。
 3. 提交源码与 `lib/`。
 4. 打带注释的 tag 并推送：

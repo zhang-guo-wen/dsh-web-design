@@ -5,7 +5,7 @@
 本仓 `dsh-web-design` 是**独立于 harness monorepo** 的 DeepSeek Harness (DSH) 插件：在侧栏里预览 `.html` 文件，选中元素改样式、改文字、移动、删除，最后经 **Save to file** 把改动写回 HTML 源文件本身。
 它不打包 `@deepseek-ai/*`：harness 服务运行时从宿主解析；`@deepseek-ai/dsh-atomic-write` 与 `parse5` 是声明在 `dependencies` 里的运行时依赖。它也不注册任何技能。
 
-仓库根**就是**包：`package.json` 即 `@guowenzhang/dsh-web-design`（版本 `1.0.1`）。
+仓库根**就是**包：`package.json` 即 `@guowenzhang/dsh-web-design`（版本 `1.1.1`）。
 这不是风格选择——`dsh plugin add <git-url>` 取的是仓库根，包放在 `packages/*` 下会被装成错误的东西。
 
 - `src/index.ts` —— host 入口：`name` / `inject: []` / `apply`，只注册下面这一个 Remote。
