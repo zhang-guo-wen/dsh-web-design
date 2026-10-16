@@ -1,4 +1,16 @@
-覆盖：构建命令、产物形态，以及「为什么必须这样构建」。何时读我：改 `src/`、`tsdown.config.ts`、`build-client.mjs`，或怀疑产物与源码不一致时。
+---
+paths:
+  - "src/**"
+  - "src/client/**"
+  - "lib/**"
+  - "tests/**"
+  - "tsdown.config.ts"
+  - "build-client.mjs"
+  - "tsconfig.json"
+  - "package.json"
+---
+
+> 覆盖：构建命令、产物形态，以及「为什么必须这样构建」。何时读我：改 `src/`、`tsdown.config.ts`、`build-client.mjs`，或怀疑产物与源码不一致时。
 
 # 构建
 

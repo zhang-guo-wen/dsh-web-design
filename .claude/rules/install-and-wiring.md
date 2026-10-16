@@ -1,4 +1,13 @@
-覆盖：`cordis.patch.yml` 组合接线、四种安装方式，以及安装后什么改动才生效。何时读我：装 / 卸插件、确认插件是否进了组合，或解释「重建了产物但界面没变」时。
+---
+paths:
+  - "package.json"
+  - "cordis.patch.yml"
+  - "lib/**"
+  - "README.md"
+  - "README.zh.md"
+---
+
+> 覆盖：`cordis.patch.yml` 组合接线、四种安装方式，以及安装后什么改动才生效。何时读我：装 / 卸插件、确认插件是否进了组合，或解释「重建了产物但界面没变」时。
 
 # 组合接线（cordis.patch.yml）
 

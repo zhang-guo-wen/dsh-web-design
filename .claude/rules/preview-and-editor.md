@@ -1,4 +1,10 @@
-覆盖：预览与编辑面板的运行时行为——iframe 隔离、悬停/滚动、加载与失败态、两级样式字段与停靠偏好。何时读我：改 `src/client/HtmlDesignBody.tsx`、`frame-runtime.ts`、`HtmlDesignBody.module.css`，或排查「滚动位置丢了 / 悬停卡顿 / 编辑面板位置」时。
+---
+paths:
+  - "src/client/**"
+  - "tests/**"
+---
+
+> 覆盖：预览与编辑面板的运行时行为——iframe 隔离、悬停/滚动、加载与失败态、两级样式字段与停靠偏好。何时读我：改 `src/client/HtmlDesignBody.tsx`、`frame-runtime.ts`、`HtmlDesignBody.module.css`，或排查「滚动位置丢了 / 悬停卡顿 / 编辑面板位置」时。
 
 # 核心机制与设计决策（预览与编辑面板）
 

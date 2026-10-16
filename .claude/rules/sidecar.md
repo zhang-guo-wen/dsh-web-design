@@ -1,4 +1,14 @@
-覆盖：sidecar（`<file>.design.json`）的字段与契约、Host 路径解析与校验限幅，以及插件对模型请求的影响。何时读我：改 `src/store.ts`、`src/remote.ts` 的路径解析 / `validateWrite`，或排查「评审存不下去 / 保存不可用 / 预览会不会进模型上下文」时。
+---
+paths:
+  - "src/**"
+  - "src/store.ts"
+  - "src/remote.ts"
+  - "src/types.ts"
+  - "tests/**"
+  - "demo/**"
+---
+
+> 覆盖：sidecar（`<file>.design.json`）的字段与契约、Host 路径解析与校验限幅，以及插件对模型请求的影响。何时读我：改 `src/store.ts`、`src/remote.ts` 的路径解析 / `validateWrite`，或排查「评审存不下去 / 保存不可用 / 预览会不会进模型上下文」时。
 
 # Sidecar
 

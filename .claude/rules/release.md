@@ -1,4 +1,13 @@
-覆盖：发版（Release）的判定与五个步骤。何时读我：要改版本号、打 tag、验证按 tag 安装时。
+---
+paths:
+  - "package.json"
+  - "lib/**"
+  - "cordis.patch.yml"
+  - "README.md"
+  - "README.zh.md"
+---
+
+> 覆盖：发版（Release）的判定与五个步骤。何时读我：要改版本号、打 tag、验证按 tag 安装时。
 
 # 发版（Release）
 

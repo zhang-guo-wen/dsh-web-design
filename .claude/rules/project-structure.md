@@ -1,4 +1,22 @@
-覆盖：包定位与目录结构（每个源码 / 产物 / 测试文件的职责）。何时读我：新增或移动文件、判断某模块该放哪、确认「仓库根就是包」或运行时依赖边界时。
+---
+paths:
+  - "src/**"
+  - "src/client/**"
+  - "lib/**"
+  - "tests/**"
+  - "demo/**"
+  - "docs/**"
+  - "package.json"
+  - "cordis.patch.yml"
+  - "tsconfig.json"
+  - "tsdown.config.ts"
+  - "build-client.mjs"
+  - "vitest.config.ts"
+  - "README.md"
+  - "README.zh.md"
+---
+
+> 覆盖：包定位与目录结构（每个源码 / 产物 / 测试文件的职责）。何时读我：新增或移动文件、判断某模块该放哪、确认「仓库根就是包」或运行时依赖边界时。
 
 # 目录
 

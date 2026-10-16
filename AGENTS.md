@@ -12,7 +12,7 @@
 - `lib/` —— 构建产物，**已提交**；`cordis.patch.yml` —— 组合接线。
 - `tests/` —— 三个 `node` 断言脚本（`smoke.mjs` / `annotations.mjs` / `source-edit.mjs`）与四个 vitest 套件（`client-apply` / `client-preview` / `client-render-cost` / `frame-runtime`）。
 - `demo/` —— 示例页面与示例 sidecar；截图只在 `docs/images/` 里存一份。
-- 逐文件职责与「为什么这样分包」见 [rules/project-structure.md](rules/project-structure.md)。
+- 逐文件职责与「为什么这样分包」见 [.claude/rules/project-structure.md](.claude/rules/project-structure.md)。
 
 ## 构建与测试
 
@@ -23,7 +23,7 @@ npm run build       # tsdown -c tsdown.config.ts && node build-client.mjs
 npm test            # node tests/smoke.mjs && node tests/annotations.mjs && node tests/source-edit.mjs && vitest run
 ```
 
-host 用 `tsdown` 打 `lib/index.mjs`（`@deepseek-ai/*` external），client 用 `build-client.mjs`（rolldown）打 `lib/client.js`。**先构建再测**：三个 `node` 断言脚本断言的是**构建后的 `lib/`**，改了 `src/` 却忘了构建时它们测的是旧产物。套件逐项说明见 [rules/testing.md](rules/testing.md)。
+host 用 `tsdown` 打 `lib/index.mjs`（`@deepseek-ai/*` external），client 用 `build-client.mjs`（rolldown）打 `lib/client.js`。**先构建再测**：三个 `node` 断言脚本断言的是**构建后的 `lib/`**，改了 `src/` 却忘了构建时它们测的是旧产物。套件逐项说明见 [.claude/rules/testing.md](.claude/rules/testing.md)。
 
 ## 关键硬约束
 
@@ -40,14 +40,14 @@ host 用 `tsdown` 打 `lib/index.mjs`（`@deepseek-ai/*` external），client �
 
 ## 详细规则
 
-明细按需读取，每个文件开头写明覆盖范围与何时读它。改动前先读与本次改动相关的那一页，不要凭印象改。
+明细放在 `.claude/rules/`，每个文件开头写明覆盖范围与何时读它。这些规则带 `paths:` 路径作用域：agent 读到匹配 glob 的文件后，会在下一次请求自动注入（每会话至多一次），也可以按需主动读取；**没有 `paths:` 的规则会像 `CLAUDE.md` 一样每次会话都注入**，所以明细必须带作用域。改动前先读与本次改动相关的那一页，不要凭印象改。
 
-- [rules/project-structure.md](rules/project-structure.md)：包定位与目录结构，每个源码 / 产物 / 测试文件的职责。
-- [rules/build.md](rules/build.md)：构建命令与产物形态、装饰器降级、`lib/` 提交理由、`HANDOFF_ID`。
-- [rules/install-and-wiring.md](rules/install-and-wiring.md)：`cordis.patch.yml` 接线、四种安装方式、部署生效语义。
-- [rules/release.md](rules/release.md)：发版判定与五个步骤（版本号、构建、提交、tag、验证安装）。
-- [rules/source-edit.md](rules/source-edit.md)：Save to file 为什么显式、source span rewrite、原子写入、Applied/Skipped、删除指纹校验。
-- [rules/preview-and-editor.md](rules/preview-and-editor.md)：预览隔离、悬停与滚动、加载与失败态、编辑面板两级字段与停靠偏好。
-- [rules/sidecar.md](rules/sidecar.md)：sidecar 字段、Host 路径解析、`validateWrite` 限幅，以及 Model experience。
-- [rules/testing.md](rules/testing.md)：七个套件各守什么、`vitest.config.ts` 打桩范围、先构建再测。
-- [rules/pitfalls.md](rules/pitfalls.md)：易崩清单十条，现象到原因的对照表。
+- [.claude/rules/project-structure.md](.claude/rules/project-structure.md)：包定位与目录结构，每个源码 / 产物 / 测试文件的职责。
+- [.claude/rules/build.md](.claude/rules/build.md)：构建命令与产物形态、装饰器降级、`lib/` 提交理由、`HANDOFF_ID`。
+- [.claude/rules/install-and-wiring.md](.claude/rules/install-and-wiring.md)：`cordis.patch.yml` 接线、四种安装方式、部署生效语义。
+- [.claude/rules/release.md](.claude/rules/release.md)：发版判定与五个步骤（版本号、构建、提交、tag、验证安装）。
+- [.claude/rules/source-edit.md](.claude/rules/source-edit.md)：Save to file 为什么显式、source span rewrite、原子写入、Applied/Skipped、删除指纹校验。
+- [.claude/rules/preview-and-editor.md](.claude/rules/preview-and-editor.md)：预览隔离、悬停与滚动、加载与失败态、编辑面板两级字段与停靠偏好。
+- [.claude/rules/sidecar.md](.claude/rules/sidecar.md)：sidecar 字段、Host 路径解析、`validateWrite` 限幅，以及 Model experience。
+- [.claude/rules/testing.md](.claude/rules/testing.md)：七个套件各守什么、`vitest.config.ts` 打桩范围、先构建再测。
+- [.claude/rules/pitfalls.md](.claude/rules/pitfalls.md)：易崩清单十条，现象到原因的对照表。

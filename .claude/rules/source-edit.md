@@ -1,4 +1,14 @@
-覆盖：写回文件的整条链路——为什么 Save to file 显式、source span rewrite、原子替换、Applied/Skipped 判定与删除指纹校验。何时读我：改 `src/source-edit.ts`、`src/remote.ts` 的 `apply`、或解释「为什么某一处改动没生效 / 报 Skipped」时。
+---
+paths:
+  - "src/**"
+  - "src/source-edit.ts"
+  - "src/remote.ts"
+  - "src/store.ts"
+  - "src/types.ts"
+  - "tests/**"
+---
+
+> 覆盖：写回文件的整条链路——为什么 Save to file 显式、source span rewrite、原子替换、Applied/Skipped 判定与删除指纹校验。何时读我：改 `src/source-edit.ts`、`src/remote.ts` 的 `apply`、或解释「为什么某一处改动没生效 / 报 Skipped」时。
 
 # 核心机制与设计决策
 
