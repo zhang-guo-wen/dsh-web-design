@@ -182,9 +182,12 @@ function descend(scope: Node, steps: readonly SelectorStep[], from: number): Loc
       next = matches[0]
     } else if (step.nth !== undefined) {
       // `nth-of-type` counts among same-tag siblings, which is exactly the
-      // candidate list after the tag filter. The frame emits it only when
-      // multiple siblings exist, so one source sibling means the DOM changed.
-      if (candidates.length < 2) return { reason: 'sibling count differs from preview' }
+      // candidate list after the tag filter. A single candidate is still
+      // unambiguous — a page with one `<div>` addresses it as nth-of-type(1) —
+      // so what matters is that the index falls inside the list, not that the
+      // list has more than one entry.
+      if (candidates.length === 0) return { reason: 'element not found in source' }
+      if (step.nth > candidates.length) return { reason: 'sibling count differs from preview' }
       next = candidates[step.nth - 1]
     } else {
       if (candidates.length > 1) return { reason: 'ambiguous selector in source' }

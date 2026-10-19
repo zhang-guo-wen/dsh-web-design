@@ -127,6 +127,24 @@ const second = applySourceEdits(list, [edit('body > ul > li:nth-of-type(2)', { c
 check('nth-of-type picks the right sibling', second.source.includes('<li style="color: red">two</li>'))
 check('leaves other siblings alone', second.source.includes('<li>one</li>') && second.source.includes('<li>three</li>'))
 
+// A page with one same-tag child still addresses it as nth-of-type(1): the
+// index is inside the list, so there is nothing ambiguous to refuse. Refusing
+// here used to report "sibling count differs from preview" for an ordinary
+// single-`div` layout.
+const loneDiv = '<html><body><main><div><strong>提示</strong></div><p>其他</p></main></body></html>'
+const loneDelete = applySourceEdits(loneDiv, [], {}, [
+  { selector: 'body > main > div:nth-of-type(1) > strong', text: '提示', classes: [] },
+])
+check('nth-of-type(1) locates a single same-tag child', loneDelete.applied.length === 1 && loneDelete.skipped.length === 0)
+check('removes the lone child element', loneDelete.source.includes('<div></div>') && !loneDelete.source.includes('<strong>'))
+
+// The guard still refuses a path whose index no longer exists.
+const staleNth = applySourceEdits('<html><body><main><div>x</div></main></body></html>', [
+  edit('body > main > div:nth-of-type(3)', { color: 'red' }),
+])
+check('refuses an nth-of-type beyond the sibling count',
+  staleNth.skipped.some(entry => entry.reason === 'sibling count differs from preview'))
+
 section('ambiguous or stale selectors cannot rewrite a different element')
 const duplicateId = '<html><body><section id="dupe"><p>first</p></section><section id="dupe"><p>second</p></section></body></html>'
 const duplicateResult = applySourceEdits(duplicateId, [edit('section#dupe > p', { color: 'red' })])
@@ -150,8 +168,11 @@ const ambiguousResult = applySourceEdits(ambiguousSiblings, [edit('body > main >
 check('a path missing nth-of-type is reported as ambiguous', ambiguousResult.skipped.some(entry => entry.reason === 'ambiguous selector in source'))
 check('an ambiguous path changes nothing', ambiguousResult.source === ambiguousSiblings)
 
+// A path is stale when its index falls outside the same-tag siblings that
+// exist, not merely because there happens to be only one of them: a page with a
+// single `<p>` addresses that element as `p:nth-of-type(1)` in the preview too.
 const changedSiblings = applySourceEdits('<html><body><main><p>only source child</p></main></body></html>', [
-  edit('body > main > p:nth-of-type(1)', { color: 'red' }),
+  edit('body > main > p:nth-of-type(2)', { color: 'red' }),
 ])
 check('a preview sibling count that differs from source is reported', changedSiblings.skipped.some(entry => entry.reason === 'sibling count differs from preview'))
 check('a changed sibling count leaves the source unchanged', !changedSiblings.source.includes('style='))
