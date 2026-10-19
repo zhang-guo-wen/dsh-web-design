@@ -394,6 +394,22 @@ describe('HTML design preview interactions', () => {
       typeof message === 'object' && message !== null && 'kind' in message && message.kind === 'text')).toBe(false)
   })
 
+  it('stages a removal when the frame reports the Delete key', async () => {
+    const { view, frame, store, postMessage, select } = await mountPreview()
+    await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
+    fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
+    select(ANCHOR)
+    // The frame owns the key press; the parent owns every guard on its effect,
+    // so the gesture arrives as a message rather than a second code path.
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: frame.contentWindow,
+        data: { channel: CHANNEL, kind: 'deleteSelected' },
+      }))
+    })
+    expect(lastRemovalRequest(postMessage).selector).toBe(ANCHOR.selector)
+  })
+
   it('stages only the selected element for deletion and writes its original identity on explicit file save', async () => {
     const { view, frame, store, postMessage, saveReview, applyToFile, dispatchRemoveResult, select } = mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))

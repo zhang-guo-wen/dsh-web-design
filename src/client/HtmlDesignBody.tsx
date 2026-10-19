@@ -238,6 +238,14 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
   const frameScroll = useRef<{ readonly x: number; readonly y: number }>({ x: 0, y: 0 })
   const documentRef = useRef(state.document)
   documentRef.current = state.document
+  /**
+   * The current removal action, for the frame's Delete key.
+   *
+   * The message listener is installed before this callback exists, and it must
+   * not re-subscribe on every edit-toolbar change; a ref carries the latest
+   * closure to it without either.
+   */
+  const deleteSelectionRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     if (locatorCopy === null) return
@@ -432,6 +440,10 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
             setFrameAppliedMode({ source, reloadToken: state.reloadToken, mode: message.mode })
           }
           return
+        case 'deleteSelected':
+          // The frame reports the gesture; the parent owns every guard on it.
+          deleteSelectionRef.current()
+          return
         case 'scroll':
           if (typeof message.x === 'number' && typeof message.y === 'number') {
             frameScroll.current = { x: message.x, y: message.y }
@@ -567,6 +579,7 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
     setFileWrite({ kind: 'idle', detail: '' })
     postToFrame(frameRef.current, { kind: 'removeSelected', selector: source.selector, requestId })
   }, [deleting, fileWrite.kind, hostPath, state.mode, state.open, state.selected?.tag, state.selectedSelector])
+  deleteSelectionRef.current = deleteSelection
 
   /** Restore every deletion that has not yet been written into the source. */
   const undoDeletions = useCallback(() => {
@@ -888,7 +901,7 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
               </div>
               <div className={css.editorFooter}>
                 <Button variant="ghost" size="sm" onClick={resetStyle}>{t('resetStyle')}</Button>
-                <Button variant="ghost" size="sm" className={css.deleteButton} disabled={hostPath === undefined || rootSelected || deleting || fileWrite.kind === 'saving'} onClick={deleteSelection}>
+                <Button variant="ghost" size="sm" className={css.deleteButton} aria-keyshortcuts="Delete Backspace" disabled={hostPath === undefined || rootSelected || deleting || fileWrite.kind === 'saving'} onClick={deleteSelection}>
                   {deleting ? t('deleting') : t('deleteElement')}
                 </Button>
                 <span className={css.footerSpace} />

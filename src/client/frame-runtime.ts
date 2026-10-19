@@ -27,6 +27,8 @@ export type FrameToParent =
   | { readonly channel: typeof CHANNEL; readonly kind: 'removeResult'; readonly requestId: string; readonly selector: string; readonly success: boolean; readonly removedSelectors: readonly string[] }
   | { readonly channel: typeof CHANNEL; readonly kind: 'scroll'; readonly x: number; readonly y: number }
   | { readonly channel: typeof CHANNEL; readonly kind: 'resize'; readonly height: number }
+  /** The reviewer asked, from the keyboard, to remove the selected element. */
+  | { readonly channel: typeof CHANNEL; readonly kind: 'deleteSelected' }
 
 /** Element metadata the frame reports on selection. */
 export interface FrameAnchor {
@@ -474,6 +476,39 @@ function runtime(channel: string): void {
     if (!(target instanceof Element)) return false
     return target.closest('[data-dsh-design-overlay],[data-dsh-design-box]') === null
   }
+
+  /**
+   * Whether a key pressed in the frame is typing rather than an edit gesture.
+   *
+   * The reviewed page has its own inputs and contenteditable regions. A Delete
+   * inside one of them removes a character, so it must reach the page and never
+   * the preview's removal path.
+   */
+  const typingTarget = (event: Event): boolean => {
+    const target = event.target
+    if (!(target instanceof Element)) return false
+    if (target.closest('input,textarea,select') !== null) return true
+    return (target as HTMLElement).isContentEditable === true
+      || target.closest('[contenteditable]:not([contenteditable="false"])') !== null
+  }
+
+  /**
+   * Treat Delete and Backspace as "remove the selected element".
+   *
+   * The listener lives in the frame, not the parent: a key pressed while the
+   * pointer is over the preview targets the frame's document, and the parent
+   * never sees it. The frame reports the intent and the parent decides — it
+   * owns the guard on page roots, the saving state, and the file path.
+   */
+  doc.addEventListener('keydown', (event) => {
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return
+    // Alt/Ctrl/Meta combinations belong to the page or the platform.
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    if (mode !== 'inspect' || selected === null || selectedSelector === null) return
+    if (typingTarget(event)) return
+    event.preventDefault()
+    post({ kind: 'deleteSelected' })
+  }, true)
 
   /** A transparent control covers its label; use the pointer position to distinguish text from the box. */
   const editTargetFor = (target: Element, event: MouseEvent): Element => {

@@ -550,3 +550,66 @@ describe('injected design frame', () => {
     expect(reported('move')).toEqual([])
   })
 })
+
+describe('keyboard removal', () => {
+  /** Dispatch one key event at a target, bubbling like a real press. */
+  function press(dom: JSDOM, key: string, target: Element, init: KeyboardEventInit = {}) {
+    const event = new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+    const dispatched = target.dispatchEvent(event)
+    return { event, dispatched }
+  }
+
+  it('reports Delete for the selected element in inspect mode', () => {
+    const { dom, send, reported } = frame('<div id="tile">Move me</div>')
+    send({ kind: 'mode', mode: 'inspect' })
+    const tile = dom.window.document.querySelector('#tile') as HTMLElement
+    tile.click()
+    press(dom, 'Delete', tile)
+    expect(reported('deleteSelected')).toHaveLength(1)
+  })
+
+  it('treats Backspace the same way and stops the page from seeing it', () => {
+    const { dom, send, reported } = frame('<div id="tile">Move me</div>')
+    send({ kind: 'mode', mode: 'inspect' })
+    const tile = dom.window.document.querySelector('#tile') as HTMLElement
+    tile.click()
+    const { dispatched } = press(dom, 'Backspace', tile)
+    expect(reported('deleteSelected')).toHaveLength(1)
+    // The page must not also act on the key it no longer owns.
+    expect(dispatched).toBe(false)
+  })
+
+  it('ignores the key while nothing is selected or outside inspect mode', () => {
+    const { dom, send, reported } = frame('<div id="tile">Move me</div>')
+    const tile = dom.window.document.querySelector('#tile') as HTMLElement
+    press(dom, 'Delete', tile)
+    expect(reported('deleteSelected')).toHaveLength(0)
+
+    send({ kind: 'mode', mode: 'inspect' })
+    press(dom, 'Delete', tile)
+    expect(reported('deleteSelected')).toHaveLength(0)
+  })
+
+  it('leaves Delete inside the page\u2019s own fields to the page', () => {
+    const { dom, send, reported } = frame('<div id="tile">Move me</div><input id="field"><div id="editable" contenteditable="true">text</div>')
+    send({ kind: 'mode', mode: 'inspect' })
+    const tile = dom.window.document.querySelector('#tile') as HTMLElement
+    tile.click()
+    for (const id of ['#field', '#editable']) {
+      const target = dom.window.document.querySelector(id) as HTMLElement
+      press(dom, 'Delete', target)
+    }
+    expect(reported('deleteSelected')).toHaveLength(0)
+  })
+
+  it('leaves a modifier combination to the page and the platform', () => {
+    const { dom, send, reported } = frame('<div id="tile">Move me</div>')
+    send({ kind: 'mode', mode: 'inspect' })
+    const tile = dom.window.document.querySelector('#tile') as HTMLElement
+    tile.click()
+    press(dom, 'Delete', tile, { ctrlKey: true })
+    press(dom, 'Delete', tile, { metaKey: true })
+    press(dom, 'Delete', tile, { altKey: true })
+    expect(reported('deleteSelected')).toHaveLength(0)
+  })
+})
