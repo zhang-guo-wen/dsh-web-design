@@ -134,12 +134,17 @@ export function createDesignStore(file: string): EngineStoreHandle<DesignStoreSt
       removeEdit: (state, selector) => {
         const current = state.document
         if (current === null) return
+        const edits = current.edits.filter(edit => edit.selector !== selector)
+        if (edits.length === current.edits.length) return
         state.document = {
           ...current,
-          edits: current.edits.filter(edit => edit.selector !== selector),
+          edits,
           updatedAt: new Date().toISOString(),
         }
-        state.dirty = true
+        // Removing the last staged edit returns the review to what it was, so
+        // nothing is waiting to be written; keeping `dirty` set there would
+        // report an unsaved change the reviewer had just discarded.
+        state.dirty = edits.length > 0 || current.comments.length > 0
       },
       removeEdits: (state, selectors) => {
         const current = state.document

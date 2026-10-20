@@ -74,5 +74,6 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
     descriptor('read'),
     descriptor('write'),
     descriptor('apply'),
+    descriptor('assets'),
   ],
 }

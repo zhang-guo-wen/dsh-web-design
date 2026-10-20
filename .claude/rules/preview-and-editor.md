@@ -8,11 +8,17 @@ paths:
 
 # 核心机制与设计决策（预览与编辑面板）
 
-## 预览文档的隔离
+## 预览文档的隔离与同目录资源
 
-预览把文件字节按 UTF-8 解出后注入运行时脚本（没有 `<body>` 就追加），再以 Blob URL 装进 iframe；sandbox 是 `allow-scripts allow-forms allow-popups allow-modals`，**没有 `allow-same-origin`**，被预览的页面因此拿到不透明源：读不到宿主文档、cookie 与存储，只能通过 `postMessage` 跟运行时说话。
+预览把文件字节按 UTF-8 解出后注入运行时脚本（没有 `<body>` 就追加），再以 Blob URL 装进 iframe。sandbox 是 `allow-scripts allow-forms allow-popups allow-modals`，**不含 `allow-same-origin`**，被预览页面因此拿到不透明源：读不到宿主文档、cookie 与存储，只能通过 `postMessage` 跟运行时说话。
 
-这层隔离也意味着注入的帧 chrome（悬停轮廓、选中框、拖动把手）拿不到宿主 token：它们写在**另一个文档**里，`body` 上的 `--dsw-*` 变量不会继承进去，所以那里的颜色是字面量。这是本仓 CSS 规范的一处已知例外，改动时不要把宿主 token 写进去（会解析成空值）。
+Blob 文档没有目录，`href="assets/app.css"` 会解析成不存在的地址。修法是**经 Remote 读回来内联**：客户端用 `siblingReferences` 取出相对引用（跳过 HTML 注释区，注释里常引用着被替换的标签），Host 的 `webDesignReview.assets` 按 Session 工作区读同目录文件，CSS/JS 内联成 `<style>`/`<script>`、图片转 `data:` URL。这条路走 IPC，桌面端与 web 端都成立。
+
+`/api/web-design/preview` 路由是 web 端专用增强，只在 `connection` 服务存在时注册。**`inject` 不得包含 `connection`**：桌面端没有这个服务，列进去会让整个插件不加载，连 Remote 都没有，预览与保存一起失效。
+
+`Save to file` 只写被评审的 HTML，内联内容不入盘；注释区逐字保留。
+
+注入的帧 chrome（悬停轮廓、选中框、拖动把手）写在被预览文档里，`body` 上的 `--dsw-*` 变量不会继承进去，所以那里的颜色是字面量。这是本仓 CSS 规范的一处已知例外，改动时不要把宿主 token 写进去（会解析成空值）。
 
 ## 悬停不进渲染路径，刷新保留页面滚动
 

@@ -9,7 +9,7 @@ import { createDesignStore } from '../src/client/store.ts'
 import { zh } from '../src/client/locales.ts'
 import { CHANNEL } from '../src/client/frame-runtime.ts'
 import type { FrameAnchor } from '../src/client/frame-runtime.ts'
-import type { DesignAnnotationDocument, DesignFileRef, DesignReadResult } from '../src/types.ts'
+import type { DesignAnnotationDocument, DesignAsset, DesignFileRef, DesignReadResult } from '../src/types.ts'
 
 const PATH = 'C:/workspace/index.html'
 const RESOURCE_ADDRESS = 'dsh-resource://file/session/test/workspace/index.html'
@@ -55,21 +55,27 @@ function reviewWithStyle(): DesignAnnotationDocument {
   }
 }
 
-function mountPreview(
+async function mountPreview(
   review: DesignAnnotationDocument | null = null,
   read?: (file: DesignFileRef) => Promise<DesignReadResult>,
   dock?: () => 'auto' | 'bottom',
+  awaitFrame = true,
+  markup = '<!doctype html><html><body><h1 id="headline">Original heading</h1></body></html>',
 ) {
   const store = createDesignStore(PATH).create()
   const defaultRead = async (_file: DesignFileRef): Promise<DesignReadResult> => ({
     path: PATH, document: review, storePath: `${PATH}.design.json`,
   })
   const loadReview = vi.fn(read ?? defaultRead)
+  // Siblings the page refers to. Returning nothing keeps a spec focused on the
+  // document itself; specs about inlining pass their own reader.
+  const loadAssets = vi.fn(async (_file: DesignFileRef, references: readonly string[]): Promise<readonly DesignAsset[]> =>
+    references.map(reference => ({ reference, text: null, reason: 'not provided' })))
   const saveReview = vi.fn(async (_file: DesignFileRef, _document: DesignAnnotationDocument): Promise<void> => {})
   const applyToFile = vi.fn(async () => ({ path: PATH, applied: [], skipped: [], bytes: 0, changed: false }))
   const writeEditorDock = vi.fn((_dock: 'auto' | 'bottom'): void => {})
   const props = {
-    content: { kind: 'bytes', data: new TextEncoder().encode('<!doctype html><html><body><h1 id="headline">Original heading</h1></body></html>') },
+    content: { kind: 'bytes', data: new TextEncoder().encode(markup) },
     resourceAddress: RESOURCE_ADDRESS,
     wrap: false,
     addResource: () => {},
@@ -80,6 +86,7 @@ function mountPreview(
     actions: store.actions,
     t: (key: string) => zh[key as keyof typeof zh] ?? key,
     loadReview,
+    loadAssets,
     saveReview,
     applyToFile,
     fileRefOf,
@@ -87,7 +94,27 @@ function mountPreview(
     writeEditorDock,
   } as unknown as HtmlDesignBodyProps
   const view = render(createElement(HtmlDesignBody, props))
+  // The preview publishes its document once the Host has answered the review
+  // read, because the address its relative references resolve against depends
+  // on that answer. The first paint is the skeleton until then. A spec that
+  // keeps that answer pending asks for the frame-less surface instead.
+  if (awaitFrame) {
+    await waitFor(() => {
+      if (view.container.querySelector('iframe[data-html-design-preview]') === null) {
+        throw new Error('HTML preview frame has not mounted yet')
+      }
+    })
+  }
   const frame = view.container.querySelector('iframe[data-html-design-preview]')
+  if (frame === null) {
+    // A pending Host answer keeps the skeleton on screen; the spec asserts on
+    // that surface and never dispatches frame messages.
+    return {
+      view, frame: null, props, store, loadReview, saveReview, applyToFile, writeEditorDock,
+      postMessage: vi.fn(), dispatchFromFrame: vi.fn(), dispatchModeApplied: vi.fn(), dispatchRemoveResult: vi.fn(),
+      select: vi.fn(), singleSelect: vi.fn(),
+    }
+  }
   if (!(frame instanceof HTMLIFrameElement) || frame.contentWindow === null) {
     throw new Error('HTML preview frame did not mount')
   }
@@ -175,7 +202,7 @@ afterEach(() => {
 
 describe('HTML design preview interactions', () => {
   it('selects on one click and opens the exact element editor only on a double-click', async () => {
-    const { view, store, select, singleSelect } = mountPreview()
+    const { view, store, select, singleSelect } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
 
@@ -191,7 +218,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('copies the selected element locator without changing its text draft', async () => {
-    const { view, store, select } = mountPreview()
+    const { view, store, select } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select(ANCHOR)
@@ -220,7 +247,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('can select the containing block from the dialog without guessing its thin border', async () => {
-    const { view, postMessage, store, select, dispatchFromFrame, frame } = mountPreview()
+    const { view, postMessage, store, select, dispatchFromFrame, frame } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select(ANCHOR)
@@ -234,8 +261,8 @@ describe('HTML design preview interactions', () => {
     expect(within(dialog).getByTitle(PARENT_ANCHOR.selector).textContent).toBe(PARENT_ANCHOR.selector)
   })
 
-  it('holds frame pointer input until the requested mode is applied', () => {
-    const { view, frame, dispatchModeApplied } = mountPreview()
+  it('holds frame pointer input until the requested mode is applied', async () => {
+    const { view, frame, dispatchModeApplied } = await mountPreview()
     expect(frame.getAttribute('data-frame-mode-ready')).toBe('false')
     dispatchModeApplied(frame, 'browse')
     expect(frame.getAttribute('data-frame-mode-ready')).toBe('true')
@@ -248,8 +275,8 @@ describe('HTML design preview interactions', () => {
     expect(frame.getAttribute('data-frame-mode-ready')).toBe('true')
   })
 
-  it('shows the page frame with only preview and edit modes and localized frame messages', () => {
-    const { view, frame, postMessage, dispatchFromFrame } = mountPreview()
+  it('shows the page frame with only preview and edit modes and localized frame messages', async () => {
+    const { view, frame, postMessage, dispatchFromFrame } = await mountPreview()
     expect(frame.getAttribute('src')).toMatch(/^blob:html-design-preview-/)
     expect(frame.hasAttribute('srcdoc')).toBe(false)
     expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob))
@@ -272,8 +299,8 @@ describe('HTML design preview interactions', () => {
     expect(view.container.querySelector('iframe[data-html-design-preview]')).toBe(frame)
   })
 
-  it('releases each Blob URL when the document changes and the preview unmounts', () => {
-    const { view, frame, props } = mountPreview()
+  it('releases each Blob URL when the document changes and the preview unmounts', async () => {
+    const { view, frame, props } = await mountPreview()
     const firstUrl = frame.getAttribute('src')
     expect(firstUrl).toMatch(/^blob:html-design-preview-/)
 
@@ -294,11 +321,11 @@ describe('HTML design preview interactions', () => {
     expect(revokeObjectURL).toHaveBeenCalledTimes(2)
   })
 
-  it('places the editor outside a narrow Sidebar preview when the viewport has room', () => {
+  it('places the editor outside a narrow Sidebar preview when the viewport has room', async () => {
     vi.stubGlobal('visualViewport', undefined)
     vi.stubGlobal('innerWidth', 1280)
     vi.stubGlobal('innerHeight', 800)
-    const { view, frame, select } = mountPreview()
+    const { view, frame, select } = await mountPreview()
     const stage = view.container.querySelector('[data-html-design-stage]')
     if (!(stage instanceof HTMLElement)) throw new Error('HTML preview stage did not mount')
     const sidebarBounds = new DOMRect(1000, 80, 260, 650)
@@ -315,11 +342,11 @@ describe('HTML design preview interactions', () => {
     expect(view.container.querySelector('iframe[data-html-design-preview]')).toBe(frame)
   })
 
-  it('uses a short bottom editor when neither side of the preview has room', () => {
+  it('uses a short bottom editor when neither side of the preview has room', async () => {
     vi.stubGlobal('visualViewport', undefined)
     vi.stubGlobal('innerWidth', 600)
     vi.stubGlobal('innerHeight', 800)
-    const { view, frame, select } = mountPreview()
+    const { view, frame, select } = await mountPreview()
     const stage = view.container.querySelector('[data-html-design-stage]')
     if (!(stage instanceof HTMLElement)) throw new Error('HTML preview stage did not mount')
     vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue(new DOMRect(170, 80, 260, 660))
@@ -335,8 +362,8 @@ describe('HTML design preview interactions', () => {
     expect(view.container.querySelector('iframe[data-html-design-preview]')).toBe(frame)
   })
 
-  it('opens the floating editor only after inspect selection and discards a cancelled draft', () => {
-    const { view, frame, postMessage, saveReview, select } = mountPreview()
+  it('opens the floating editor only after inspect selection and discards a cancelled draft', async () => {
+    const { view, frame, postMessage, saveReview, select } = await mountPreview()
     select()
     expect(view.queryByRole('dialog')).toBeNull()
     expect(view.getByText(zh.saved)).toBeDefined()
@@ -372,7 +399,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('does not offer aggregate child text when a parent block is selected', async () => {
-    const { view, store, postMessage, saveReview, select } = mountPreview()
+    const { view, store, postMessage, saveReview, select } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select(PARENT_ANCHOR)
@@ -411,7 +438,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('stages only the selected element for deletion and writes its original identity on explicit file save', async () => {
-    const { view, frame, store, postMessage, saveReview, applyToFile, dispatchRemoveResult, select } = mountPreview()
+    const { view, frame, store, postMessage, saveReview, applyToFile, dispatchRemoveResult, select } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select(ANCHOR)
@@ -446,7 +473,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('identifies the entire selected parent block and disables deletion of page roots', async () => {
-    const { view, store, postMessage, select } = mountPreview()
+    const { view, store, postMessage, select } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select(PARENT_ANCHOR)
@@ -471,7 +498,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('replays a pending deletion into a refreshed frame', async () => {
-    const { view, frame, store, postMessage, dispatchFromFrame, dispatchRemoveResult, select } = mountPreview()
+    const { view, frame, store, postMessage, dispatchFromFrame, dispatchRemoveResult, select } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select()
@@ -494,7 +521,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('undoes a pending deletion by refreshing the preview and omits it from the next file save', async () => {
-    const { view, frame, store, postMessage, applyToFile, dispatchFromFrame, dispatchRemoveResult, select } = mountPreview(reviewWithStyle())
+    const { view, frame, store, postMessage, applyToFile, dispatchFromFrame, dispatchRemoveResult, select } = await mountPreview(reviewWithStyle())
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select()
@@ -531,7 +558,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('keeps earlier staged deletions when a later frame removal fails', async () => {
-    const { view, frame, store, postMessage, applyToFile, dispatchRemoveResult, select } = mountPreview()
+    const { view, frame, store, postMessage, applyToFile, dispatchRemoveResult, select } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select(ANCHOR)
@@ -559,8 +586,24 @@ describe('HTML design preview interactions', () => {
     }))
   })
 
-  it('keeps a dragged position as a draft, restores it on cancel, and persists it on save', async () => {
-    const { view, frame, store, postMessage, saveReview, applyToFile, dispatchFromFrame, select } = mountPreview()
+  it('stages a drag made without the editor open, the same way a deletion is staged', async () => {
+    const { view, frame, store, dispatchFromFrame, singleSelect } = await mountPreview()
+    await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
+    fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
+    // A single click selects without opening the editor; the reviewer then drags.
+    // The move must be staged for Save to file without a dialog interrupting.
+    singleSelect(ANCHOR)
+    expect(view.queryByRole('dialog')).toBeNull()
+
+    dispatchFromFrame(frame, 'move', ANCHOR, { translate: '30px 40px' })
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect(view.getByText(zh.unsaved)).toBeDefined()
+    // Staged, not written: the artifact changes only on Save to file.
+    expect(store.getSnapshot().document?.edits[0]?.declarations).toMatchObject({ translate: '30px 40px' })
+  })
+
+  it('keeps a dragged position staged, restores it on cancel, and writes it on Save to file', async () => {
+    const { view, frame, store, postMessage, saveReview, applyToFile, dispatchFromFrame, select } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select()
@@ -568,6 +611,7 @@ describe('HTML design preview interactions', () => {
 
     dispatchFromFrame(frame, 'move', ANCHOR, { translate: '30px 40px' })
     expect(view.getByText(zh.unsaved)).toBeDefined()
+    // A drag stages the move; it never writes the review by itself.
     expect(saveReview).not.toHaveBeenCalled()
     fireEvent.click(within(dialog).getByRole('button', { name: zh.cancel }))
     expect(view.getByText(zh.saved)).toBeDefined()
@@ -577,14 +621,12 @@ describe('HTML design preview interactions', () => {
     expect(saveReview).not.toHaveBeenCalled()
     expect((view.getByRole('button', { name: zh.saveToFile }) as HTMLButtonElement).disabled).toBe(true)
 
+    // A second drag stages again, without a dialog in the way.
     select()
+    fireEvent.click(within(view.getByRole('dialog', { name: zh.editElement })).getByRole('button', { name: zh.cancel }))
     dispatchFromFrame(frame, 'move', ANCHOR, { translate: '50px 20px' })
     expect(view.getByText(zh.unsaved)).toBeDefined()
-    fireEvent.click(within(view.getByRole('dialog', { name: zh.editElement })).getByRole('button', { name: zh.save }))
-    await waitFor(() => expect(saveReview).toHaveBeenCalledOnce())
-    expect(saveReview).toHaveBeenCalledWith(fileRefOf(RESOURCE_ADDRESS), expect.objectContaining({
-      edits: [expect.objectContaining({ selector: ANCHOR.selector, declarations: { translate: '50px 20px' } })],
-    }))
+    expect(saveReview).not.toHaveBeenCalled()
     const saveFile = view.getByRole('button', { name: zh.saveToFile }) as HTMLButtonElement
     await waitFor(() => expect(saveFile.disabled).toBe(false))
     fireEvent.click(saveFile)
@@ -598,7 +640,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('waits for the review write before enabling Save to file', async () => {
-    const { view, store, saveReview, applyToFile, select } = mountPreview()
+    const { view, store, saveReview, applyToFile, select } = await mountPreview()
     let finishSave!: () => void
     saveReview.mockImplementation(() => new Promise<void>(resolve => { finishSave = resolve }))
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
@@ -617,7 +659,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('keeps an existing style edit when reset is cancelled', async () => {
-    const { view, store, postMessage, saveReview, select } = mountPreview(reviewWithStyle())
+    const { view, store, postMessage, saveReview, select } = await mountPreview(reviewWithStyle())
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     postMessage.mockClear()
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
@@ -639,7 +681,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('replays scroll, mode, stored styles, and pending text when a refreshed frame becomes ready', async () => {
-    const { view, frame, store, saveReview, dispatchFromFrame, select } = mountPreview(reviewWithStyle())
+    const { view, frame, store, saveReview, dispatchFromFrame, select } = await mountPreview(reviewWithStyle())
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select()
@@ -667,7 +709,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('puts a refreshed preview back where the reviewer had scrolled the page', async () => {
-    const { view, frame, store, dispatchFromFrame } = mountPreview()
+    const { view, frame, store, dispatchFromFrame } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     act(() => {
       window.dispatchEvent(new MessageEvent('message', {
@@ -691,7 +733,7 @@ describe('HTML design preview interactions', () => {
 
   it('re-reads the review when the reviewer retries a failed load', async () => {
     let attempts = 0
-    const { view, store, loadReview } = mountPreview(null, async () => {
+    const { view, store, loadReview } = await mountPreview(null, async () => {
       attempts += 1
       if (attempts === 1) throw new Error('Host read failed')
       return { path: PATH, document: null, storePath: `${PATH}.design.json` }
@@ -709,8 +751,32 @@ describe('HTML design preview interactions', () => {
     expect(store.getSnapshot().loading).toBe(false)
   })
 
+  it('drops an edit whose element has no source, so the next save does not repeat it', async () => {
+    const { view, frame, store, applyToFile, dispatchFromFrame, select } = await mountPreview()
+    await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
+    fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
+    // A row the page's own script rendered: the selector exists in the frame but
+    // nothing in the HTML source matches it, so it can never be written.
+    select()
+    dispatchFromFrame(frame, 'move', ANCHOR, { translate: '0px 12px' })
+    expect(store.getSnapshot().document?.edits).toHaveLength(1)
+
+    applyToFile.mockResolvedValue({
+      path: PATH,
+      applied: [],
+      skipped: [{ selector: ANCHOR.selector, reason: 'element not found in source' }],
+      bytes: 0,
+      changed: false,
+    })
+    fireEvent.click(view.getByRole('button', { name: zh.saveToFile }))
+    await waitFor(() => expect(applyToFile).toHaveBeenCalledOnce())
+    await waitFor(() => expect(view.getByText(zh.fileNotInSource)).toBeDefined())
+    // The unlocatable edit is cleared, so it cannot fail again on every save.
+    await waitFor(() => expect(store.getSnapshot().document?.edits).toHaveLength(0))
+  })
+
   it('keeps the edits and offers a retry when the file write cannot locate every element', async () => {
-    const { view, frame, store, postMessage, applyToFile, dispatchRemoveResult, select } = mountPreview()
+    const { view, frame, store, postMessage, applyToFile, dispatchRemoveResult, select } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select()
@@ -741,8 +807,8 @@ describe('HTML design preview interactions', () => {
     }))
   })
 
-  it('explains an unsupported document instead of rendering an empty pane', () => {
-    const { view, props } = mountPreview()
+  it('explains an unsupported document instead of rendering an empty pane', async () => {
+    const { view, props } = await mountPreview()
     view.rerender(createElement(HtmlDesignBody, {
       ...props,
       content: { kind: 'text', text: '', pages: [], eof: true },
@@ -753,7 +819,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('opens on the frequent style fields and reveals the rest on request', async () => {
-    const { view, store, select } = mountPreview()
+    const { view, store, select } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select()
@@ -781,7 +847,7 @@ describe('HTML design preview interactions', () => {
 
   it('shows a stored advanced style without needing the disclosure', async () => {
     const review = reviewWithStyle()
-    const { view, store, select } = mountPreview({
+    const { view, store, select } = await mountPreview({
       ...review,
       edits: [{ selector: ANCHOR.selector, declarations: { padding: '4px' }, updatedAt: '2026-09-23T00:00:00.000Z' }],
     })
@@ -793,11 +859,11 @@ describe('HTML design preview interactions', () => {
     expect(within(dialog).getByRole('button', { name: zh.lessStyles }).getAttribute('aria-expanded')).toBe('true')
   })
 
-  it('docks the editor to the bottom on request and remembers the choice', () => {
+  it('docks the editor to the bottom on request and remembers the choice', async () => {
     vi.stubGlobal('visualViewport', undefined)
     vi.stubGlobal('innerWidth', 1280)
     vi.stubGlobal('innerHeight', 800)
-    const { view, select, writeEditorDock } = mountPreview()
+    const { view, select, writeEditorDock } = await mountPreview()
     const stage = view.container.querySelector('[data-html-design-stage]')
     if (!(stage instanceof HTMLElement)) throw new Error('HTML preview stage did not mount')
     vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue(new DOMRect(1000, 80, 260, 650))
@@ -817,11 +883,11 @@ describe('HTML design preview interactions', () => {
     expect(writeEditorDock).toHaveBeenLastCalledWith('auto')
   })
 
-  it('opens the remembered bottom dock without a click', () => {
+  it('opens the remembered bottom dock without a click', async () => {
     vi.stubGlobal('visualViewport', undefined)
     vi.stubGlobal('innerWidth', 1280)
     vi.stubGlobal('innerHeight', 800)
-    const { view, select } = mountPreview(null, undefined, () => 'bottom')
+    const { view, select } = await mountPreview(null, undefined, () => 'bottom')
     const stage = view.container.querySelector('[data-html-design-stage]')
     if (!(stage instanceof HTMLElement)) throw new Error('HTML preview stage did not mount')
     vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue(new DOMRect(1000, 80, 260, 650))
@@ -834,7 +900,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('declares the escape shortcut on the editor dialog', async () => {
-    const { view, store, select } = mountPreview()
+    const { view, store, select } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select()
@@ -844,19 +910,87 @@ describe('HTML design preview interactions', () => {
     expect(view.queryByRole('dialog')).toBeNull()
   })
 
-  it('enables element saving only after the Host returns the canonical file path', async () => {
+  it('inlines the stylesheet and script the page refers to beside it', async () => {
+    // A Blob document has no directory, so a relative reference cannot resolve.
+    // This is the path that works on both hosts, the IPC desktop host included.
+    const markup = '<!doctype html><html><head><link rel="stylesheet" href="assets/app.css"></head>'
+      + '<body><h1 id="headline">x</h1><script src="assets/app.js"></script></body></html>'
+    const { props, view } = await mountPreview(null, undefined, undefined, true, markup)
+    view.rerender(createElement(HtmlDesignBody, {
+      ...props,
+      loadAssets: async (_file: DesignFileRef, references: readonly string[]) => references.map(reference => ({
+        reference,
+        text: reference.endsWith('.css') ? 'h1{color:rgb(1,2,3)}' : 'window.__inlined=true',
+      })),
+    }))
+    await waitFor(() => {
+      const blob = createObjectURL.mock.calls.at(-1)?.[0] as Blob | undefined
+      if (blob === undefined) throw new Error('no document yet')
+    })
+    const html = await (createObjectURL.mock.calls.at(-1)![0] as Blob).text()
+    expect(html).toContain('h1{color:rgb(1,2,3)}')
+    expect(html).toContain('window.__inlined=true')
+    // The originals are replaced, not merely accompanied.
+    expect(html).not.toContain('href="assets/app.css"')
+    expect(html).not.toContain('src="assets/app.js"')
+    expect(html).toContain('data-dsh-design-inlined="assets/app.css"')
+  })
+
+  it('points the frame\u2019s relative references at the reviewed file\u2019s own directory', async () => {
+    await mountPreview()
+    // The reviewed page's relative references were authored against a real
+    // directory. The document is a Blob, whose base has none, so the Host's
+    // asset route supplies it. A base inserted after parsing could not
+    // re-issue the requests the parser already made, so it is in the source the
+    // frame receives, not patched in afterwards.
+    const blob = createObjectURL.mock.calls.at(-1)?.[0] as Blob | undefined
+    expect(blob).toBeInstanceOf(Blob)
+    const html = await blob!.text()
+    expect(html).toContain('<base href="/api/web-design/preview/')
+    const base = /<base href="([^"]+)"/u.exec(html)?.[1]
+    expect(base).toMatch(/^\/api\/web-design\/preview\/[^/]+\/[^/]+\/$/u)
+    // A sibling reference on the reviewed page resolves inside its folder.
+    expect(new URL('proto.css', `http://host${base}`).pathname)
+      .toMatch(/\/api\/web-design\/preview\/[^/]+\/[^/]+\/proto\.css$/u)
+  })
+
+  it('keeps a base the reviewed page declares for itself', async () => {
+    await mountPreview(null, undefined, undefined, true,
+      '<!doctype html><html><head><base href="https://example.invalid/assets/"></head><body><p>x</p></body></html>')
+    const blob = createObjectURL.mock.calls.at(-1)?.[0] as Blob | undefined
+    const html = await blob!.text()
+    expect(html).toContain('<base href="https://example.invalid/assets/">')
+    expect(html).not.toContain('/api/web-design/preview')
+  })
+
+  it('holds the preview on its skeleton until the Host returns the canonical file path', async () => {
     let resolveRead!: (result: DesignReadResult) => void
     const pendingRead = new Promise<DesignReadResult>(resolve => { resolveRead = resolve })
-    const { view, loadReview, saveReview, select } = mountPreview(null, async () => pendingRead)
+    const { view, loadReview, saveReview } = await mountPreview(null, async () => pendingRead, undefined, false)
     expect(loadReview).toHaveBeenCalledWith(fileRefOf(RESOURCE_ADDRESS))
+    // Nothing is reviewable yet: no frame, and no save affordance to reach.
+    expect(view.container.querySelector('iframe[data-html-design-preview]')).toBeNull()
+    expect(view.container.querySelector('[aria-busy="true"]')).not.toBeNull()
+
+    await act(async () => { resolveRead({ path: PATH, document: null, storePath: `${PATH}.design.json` }) })
+    const frame = await waitFor(() => {
+      const mounted = view.container.querySelector('iframe[data-html-design-preview]')
+      if (!(mounted instanceof HTMLIFrameElement)) throw new Error('frame has not mounted yet')
+      return mounted
+    })
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, data: { channel: CHANNEL, kind: 'ready' } }))
+    })
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
-    select()
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: frame.contentWindow,
+        data: { channel: CHANNEL, kind: 'edit', anchor: ANCHOR },
+      }))
+    })
     const dialog = view.getByRole('dialog', { name: zh.editElement })
     const save = within(dialog).getByRole('button', { name: zh.save }) as HTMLButtonElement
-    expect(save.disabled).toBe(true)
-
-    act(() => resolveRead({ path: PATH, document: null, storePath: `${PATH}.design.json` }))
-    await waitFor(() => expect(save.disabled).toBe(false))
+    expect(save.disabled).toBe(false)
     fireEvent.change(within(dialog).getByLabelText(zh.fontSize), { target: { value: '22px' } })
     fireEvent.click(save)
 
@@ -868,7 +1002,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('keeps file and element saving disabled when the Host read fails', async () => {
-    const { view, store, saveReview, applyToFile, select } = mountPreview(null, async () => {
+    const { view, store, saveReview, applyToFile, select } = await mountPreview(null, async () => {
       throw new Error('Host read failed')
     })
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
@@ -890,7 +1024,7 @@ describe('HTML design preview interactions', () => {
   })
 
   it('sends saved style and text to the mounted page and persists the style review', async () => {
-    const { view, frame, store, postMessage, saveReview, select } = mountPreview()
+    const { view, frame, store, postMessage, saveReview, select } = await mountPreview()
     await waitFor(() => expect(store.getSnapshot().loading).toBe(false))
     fireEvent.click(view.getByRole('button', { name: zh.modeInspect }))
     select()

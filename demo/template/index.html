@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MES 工艺路线列表</title>
+  <!--
+    这个页面故意不把样式和脚本内联：
+      <link rel="stylesheet" href="assets/app.css">
+      <script src="assets/app.js"></script>
+      <img src="assets/mark.svg">
+    预览时必须通过宿主的 /api/web-design/preview/... 路由把这三个文件取回来，
+    否则页面会退化成无样式的裸结构、表格空白、顶部状态条显示"外部脚本未加载"。
+  -->
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <img src="assets/mark.svg" alt="" width="28" height="28">
+    <h1>MES 工艺路线</h1>
+    <span class="crumb" style="translate: 70px -9px">基础数据 / <b>工艺路线</b></span>
+    <span class="spacer"></span>
+    <span class="stamp">2026-10-19 10:00</span>
+  </header>
+
+  <main class="page">
+    <!-- 运行状态条：由 assets/app.js 改写。它变成绿色就说明外部 JS 真的执行了。 -->
+    <div class="runtime-note" data-runtime-note data-state="pending">
+      <strong>外部脚本未加载</strong>
+      <span>如果这条一直是黄色，说明 assets/app.js 没有被取回来。</span>
+    </div>
+
+    
+
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            
+            
+            
+            <th class="num">工序</th>
+            <th class="num">物料</th>
+            <th>状态</th>
+            <th class="progress-col" style="translate: 30px -82px">工序配置完成度</th>
+            <th>创建信息</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <!-- 行由 assets/app.js 渲染；这里留空是为了证明数据确实来自外部脚本。 -->
+        <tbody data-routes></tbody>
+      </table>
+
+      <div class="pager">
+        <span>共 5 条，当前显示 <span data-count>5</span> 条</span>
+        <span class="spacer"></span>
+        <button class="pg" type="button" aria-label="上一页">‹</button>
+        <button class="pg" type="button" aria-current="page">1</button>
+        <button class="pg" type="button" aria-label="下一页">›</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,298 @@
+/* MES 工艺路线 —— 共享样式表
+ *
+ * 这个文件故意放在独立文件里：预览必须通过宿主的资源路由把它取回来，
+ * 否则页面会退化成无样式的裸结构。所有颜色取自一组语义变量，
+ * 换主题时只改 :root 一处。
+ */
+
+:root {
+  --ink: #16191f;
+  --ink-soft: #4c5666;
+  --ink-faint: #8a94a3;
+  --line: #e4e8ee;
+  --line-soft: #eef1f5;
+  --bg: #ffffff;
+  --surface: #f6f8fb;
+  --surface-2: #eef2f7;
+  --accent: #2f5fe0;
+  --accent-soft: #eaf0ff;
+  --ok: #12805c;
+  --ok-soft: #e6f6ef;
+  --warn: #9a6200;
+  --warn-soft: #fdf3e0;
+  --danger: #c03030;
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(20, 26, 36, 0.06), 0 8px 24px rgba(20, 26, 36, 0.06);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- 顶栏 ---- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 56px;
+  padding: 0 20px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.crumb {
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+.crumb b { color: var(--ink-soft); font-weight: 550; }
+
+.topbar .spacer { flex: 1; }
+
+.stamp { color: var(--ink-faint); font-size: 13px; }
+
+/* ---- 页面骨架 ---- */
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* ---- 筛选条 ---- */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+
+.field label { font-size: 12px; color: var(--ink-faint); }
+
+.field input,
+.field select {
+  height: 34px;
+  padding: 0 10px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: none;
+}
+
+.field input:focus,
+.field select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.field.wide input { width: 260px; }
+
+.filters .spacer { flex: 1; }
+
+/* ---- 按钮 ---- */
+.btn {
+  height: 34px;
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 550;
+  color: var(--ink-soft);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.btn:hover { background: var(--surface-2); }
+
+.btn.primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn.primary:hover { background: #2450c4; }
+
+.btn.link {
+  height: auto;
+  padding: 0;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  font-weight: 550;
+}
+
+.btn.link:hover { text-decoration: underline; }
+
+/* ---- 表格 ---- */
+.card {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+thead th {
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-faint);
+  text-align: left;
+  white-space: nowrap;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: middle;
+}
+
+tbody tr:last-child td { border-bottom: 0; }
+
+tbody tr:hover { background: var(--surface); }
+
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.mono {
+  font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.name { font-weight: 600; color: var(--accent); }
+
+.muted { color: var(--ink-faint); font-size: 12px; }
+
+/* ---- 状态标记 ---- */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 550;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.pill.on { color: var(--ok); background: var(--ok-soft); }
+.pill.off { color: var(--ink-faint); background: var(--surface-2); }
+.pill.default { color: var(--warn); background: var(--warn-soft); }
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ---- 进度条：证明 JS 真的执行了 ---- */
+.bar {
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 480ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.progress-col { width: 140px; }
+
+/* ---- 分页 ---- */
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  color: var(--ink-faint);
+  font-size: 13px;
+  border-top: 1px solid var(--line);
+}
+
+.pager .spacer { flex: 1; }
+
+.pg {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  font: inherit;
+  color: var(--ink-soft);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.pg[aria-current="page"] {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ---- 运行状态条：由 external app.js 写入 ---- */
+.runtime-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.runtime-note strong { color: var(--ink); font-weight: 600; }
+
+.runtime-note[data-state="ready"] { border-color: var(--ok-soft); background: var(--ok-soft); color: var(--ok); }
+.runtime-note[data-state="pending"] { border-color: var(--warn-soft); background: var(--warn-soft); color: var(--warn); }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn { transition: none; }
+  .bar > span { transition: none; }
+}
+
+@media (max-width: 720px) {
+  .field.wide input { width: 100%; }
+  .progress-col { display: none; }
+}

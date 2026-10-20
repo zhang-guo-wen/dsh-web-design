@@ -13,10 +13,12 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { PREVIEW_ROUTE, registerPreviewRoute } from './preview-server.ts'
 import { WebDesignRemote } from './remote.ts'
 
 export { TYPERT_REMOTE, REMOTE_NAMESPACE } from './typert.ts'
 export { WebDesignRemote } from './remote.ts'
+export { PREVIEW_ROUTE, confine, decodeRoot, encodeRoot, registerPreviewRoute } from './preview-server.ts'
 export {
   SIDECAR_SUFFIX,
   emptyDocument,
@@ -32,11 +34,19 @@ export type * from './types.ts'
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'web-design'
 
-/** Services this plugin requires; none, so it loads in any composition. */
-export const inject = []
+/**
+ * Services this plugin requires.
+ *
+ * Only `fs` is required. `connection` carries the HTTP Fetch-route registry and
+ * exists on the web host alone; the desktop host speaks IPC and has no such
+ * service. Listing it here would keep the whole plugin — review Remote included
+ * — from loading on every desktop composition, so it is resolved optionally at
+ * apply time and the preview keeps its Blob fallback where it is absent.
+ */
+export const inject = ['fs']
 
 /**
- * Register the review Remote the Sidebar preview calls.
+ * Register the review Remote and, where the host has one, the preview asset route.
  *
  * The Remote registers unconditionally, because a guarded registration would
  * make every client call fail with a missing namespace rather than a reportable
@@ -47,4 +57,5 @@ export function apply(ctx: Context): void {
   // The Remote owner registers itself as `ctx.webDesignReview` on construction;
   // the service registry keeps the instance alive for this fiber's lifetime.
   void new WebDesignRemote(ctx)
+  void registerPreviewRoute(ctx)
 }

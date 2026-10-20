@@ -15,7 +15,7 @@
  */
 
 import { readFile, stat } from 'node:fs/promises'
-import { isAbsolute } from 'node:path'
+import { dirname, extname, isAbsolute, join, posix } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type {} from '@deepseek-ai/dsh-fs'
@@ -29,6 +29,8 @@ import { readAnnotations, sidecarPath, validateWrite, writeAnnotations } from '.
 import type {
   DesignApplyRequest,
   DesignApplyResult,
+  DesignAsset,
+  DesignAssetsRequest,
   DesignFileRef,
   DesignReadRequest,
   DesignReadResult,
@@ -166,6 +168,40 @@ export class WebDesignRemote extends TypertRemoteService {
     }
   }
 
+  /**
+   * Read the stylesheets and scripts a previewed page refers to by relative path.
+   *
+   * The preview renders the page from a Blob document, which has no directory,
+   * so `href="assets/app.css"` there resolves to an address that cannot exist.
+   * Reading the siblings here and inlining them is the only path that works on
+   * both hosts: the desktop host speaks IPC and has no HTTP route registry to
+   * serve them from instead.
+   *
+   * Each reference is confined to the previewed file's own directory tree: a
+   * prototype laid out in sibling folders keeps working, and nothing else is
+   * reachable. A reference that cannot be read answers with its reason rather
+   * than failing the whole preview.
+   * @param request - the page's Session address and the references it declares.
+   * @returns one entry per reference, in request order.
+   * @throws a typed error when the Session or file address cannot be resolved.
+   */
+  @Remote('assets')
+  async assets(request: DesignAssetsRequest): Promise<readonly DesignAsset[]> {
+    const path = await this.resolveFile(request?.file, 'assets')
+    const references = request?.references
+    if (!Array.isArray(references)) {
+      throw new RemoteError('web-design/invalid', 'assets requires a `references` array', {
+        reason: `references was ${typeof references}`,
+      })
+    }
+    const directory = dirname(path)
+    const results: DesignAsset[] = []
+    for (const reference of references.slice(0, MAX_REFERENCES)) {
+      results.push(await readSibling(directory, reference))
+    }
+    return results
+  }
+
   /** Resolve one browser-supplied file address through its Session workspace. */
   private async resolveFile(value: unknown, method: string): Promise<string> {
     if (typeof value !== 'object' || value === null) {
@@ -197,6 +233,78 @@ export class WebDesignRemote extends TypertRemoteService {
     const path = fs.processPath(target)
     if (!isAbsolute(path)) throw invalidFile(method, 'filesystem did not return an absolute host path')
     return path
+  }
+}
+
+/** A previewed page may not pull in more siblings than this in one request. */
+const MAX_REFERENCES = 64
+
+/** One sibling stylesheet or script must stay under this to be inlined. */
+const MAX_SIBLING_BYTES = 4 * 1024 * 1024
+
+/** Suffixes this method will return, so a reference cannot pull in an arbitrary file. */
+const INLINE_SUFFIXES = new Set(['.css', '.js', '.mjs', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico'])
+
+/** Content types for the binary siblings a page refers to by relative path. */
+const BINARY_TYPES: Readonly<Record<string, string>> = {
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+}
+
+/**
+ * Read one sibling file a previewed page refers to.
+ *
+ * The reference is confined to `directory`: `../` is resolved rather than
+ * banned, which keeps a prototype laid out in sibling folders working, but a
+ * path that still climbs out is refused, as is any absolute or backslash form.
+ * @param directory - absolute directory of the previewed page.
+ * @param reference - the reference exactly as the page wrote it.
+ * @returns the file's text, or `null` with the reason it could not be read.
+ */
+async function readSibling(directory: string, reference: string): Promise<DesignAsset> {
+  if (typeof reference !== 'string' || reference.length === 0) {
+    return { reference: String(reference), text: null, reason: 'empty reference' }
+  }
+  const suffix = reference.search(/[?#]/u)
+  const bare = suffix === -1 ? reference : reference.slice(0, suffix)
+  if (!INLINE_SUFFIXES.has(extname(bare).toLowerCase())) {
+    return { reference, text: null, reason: 'not a stylesheet or script' }
+  }
+  let relative: string
+  try {
+    relative = decodeURIComponent(bare)
+  } catch {
+    return { reference, text: null, reason: 'malformed escape' }
+  }
+  if (/^(?:[a-z][a-z\d+.-]*:|[/\\])/iu.test(relative) || relative.includes('\0') || relative.includes('\\')) {
+    return { reference, text: null, reason: 'not a sibling path' }
+  }
+  const normalized = posix.normalize(relative)
+  if (normalized === '..' || normalized.startsWith('../')) {
+    return { reference, text: null, reason: 'outside the page directory' }
+  }
+  const target = join(directory, ...normalized.split('/'))
+  try {
+    const info = await stat(target)
+    if (!info.isFile()) return { reference, text: null, reason: 'not a file' }
+    if (info.size > MAX_SIBLING_BYTES) return { reference, text: null, reason: 'file too large' }
+    const type = BINARY_TYPES[extname(target).toLowerCase()]
+    if (type !== undefined) {
+      // An image travels as a data URL: the preview document is a Blob with no
+      // origin of its own, so a relative `src` could not fetch it either.
+      const bytes = await readFile(target)
+      return { reference, text: `data:${type};base64,${bytes.toString('base64')}` }
+    }
+    return { reference, text: await readFile(target, 'utf8') }
+  } catch (cause) {
+    // A missing sibling is reported to the preview, not raised: one absent
+    // stylesheet should not blank the whole page.
+    return { reference, text: null, reason: cause instanceof Error ? cause.message : String(cause) }
   }
 }
 

@@ -31,6 +31,8 @@ import type {
   DesignAnnotationDocument,
   DesignApplyRequest,
   DesignApplyResult,
+  DesignAsset,
+  DesignAssetsRequest,
   DesignComment,
   DesignFileRef,
   DesignReadRequest,
@@ -102,6 +104,7 @@ interface WebDesignReviewNamespace {
   read(request: DesignReadRequest): Promise<RemoteResult<DesignReadResult>>
   write(request: DesignWriteRequest): Promise<RemoteResult<DesignWriteResult>>
   apply(request: DesignApplyRequest): Promise<RemoteResult<DesignApplyResult>>
+  assets(request: DesignAssetsRequest): Promise<RemoteResult<readonly DesignAsset[]>>
 }
 
 /** Unwrap a Typert `RemoteResult` or surface the Host failure. */
@@ -152,6 +155,8 @@ export async function apply(ctx: Context): Promise<void> {
       inject: () => ({
         loadReview: async (file: DesignFileRef): Promise<DesignReadResult> =>
           await unwrapRemote(() => namespace().read({ file })),
+        loadAssets: async (file: DesignFileRef, references: readonly string[]): Promise<readonly DesignAsset[]> =>
+          await unwrapRemote(() => namespace().assets({ file, references })),
         saveReview: async (file: DesignFileRef, document: DesignAnnotationDocument): Promise<void> => {
           await unwrapRemote(() => namespace().write({ file, document }))
         },

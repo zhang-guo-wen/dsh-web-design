@@ -7,10 +7,10 @@
 
 ## 目录结构（速览）
 
-- `src/` —— host 半边：`index.ts`（入口，`name` / `inject: []` / `apply`）、`remote.ts`（`webDesignReview` 的 `read` / `write` / `apply` 与 Session 路径解析）、`store.ts`（sidecar 读写、校验与限幅）、`source-edit.ts`（源 span 改写）、`typert.ts`（`TYPERT_REMOTE` descriptor）、`types.ts`（共享类型与两个 `RemoteError` detail kind）。
+- `src/` —— host 半边：`index.ts`（入口，`name` / `inject: ['fs']` / `apply`）、`remote.ts`（`webDesignReview` 的 `read` / `write` / `apply` / `assets` 与 Session 路径解析）、`preview-server.ts`（web 端专用资源路由）、`store.ts`（sidecar 读写、校验与限幅）、`source-edit.ts`（源 span 改写）、`typert.ts`（`TYPERT_REMOTE` descriptor）、`types.ts`（共享类型与两个 `RemoteError` detail kind）。
 - `src/client/` —— 浏览器半边：`index.ts`（挂 Remote、注册字典、`sidebar.right.tab.document` 座位）、`HtmlDesignBody.tsx`、`frame-runtime.ts`、`document.ts`、`store.ts`、`locales.ts`、`HtmlDesignBody.module.css`。
 - `lib/` —— 构建产物，**已提交**；`cordis.patch.yml` —— 组合接线。
-- `tests/` —— 三个 `node` 断言脚本（`smoke.mjs` / `annotations.mjs` / `source-edit.mjs`）与四个 vitest 套件（`client-apply` / `client-preview` / `client-render-cost` / `frame-runtime`）。
+- `tests/` —— 三个 `node` 断言脚本（`smoke.mjs` / `annotations.mjs` / `source-edit.mjs`）与八个 vitest 套件（`assets-read` / `client-apply` / `client-inline` / `client-preview` / `client-preview-url` / `client-render-cost` / `frame-runtime` / `preview-route`）。
 - `demo/` —— 示例页面与示例 sidecar；截图只在 `docs/images/` 里存一份。
 - 逐文件职责与「为什么这样分包」见 [.claude/rules/project-structure.md](.claude/rules/project-structure.md)。
 
@@ -33,7 +33,7 @@ host 用 `tsdown` 打 `lib/index.mjs`（`@deepseek-ai/*` external），client �
 4. **`lib/` 与源码一起提交**：`dsh plugin add <git-url>` 装的是仓库里的东西，不跑构建。
 5. **sidecar 契约**：`document.file` 必须与请求路径一致、`version` 必须是 `1`；`file` 是 Host 解析出的绝对路径，Session / 工作区 / 普通文件任一不成立就报 `web-design/invalid`——页面仍可见，但评审保存与 Save to file 都不可用。
 6. **写文件只走 source span rewrite**：其余字节逐字保留，位置重叠报 `overlapping source edits`，定位不唯一进 **Skipped**（带原因，不是报错），`html` / `head` / `body` 一律拒删。
-7. **预览 iframe 的 sandbox 不含 `allow-same-origin`**，注入的帧 chrome 拿不到宿主 token——那里的颜色是字面量，是本仓 CSS 规范的已知例外，不要把 `--dsw-*` 写进去（会解析成空值）。
+7. **同目录资源靠内联，这是两端唯一的可行路径**：预览文档是 Blob，没有目录，`href="assets/app.css"` 解析不到。客户端从 HTML 取相对引用（跳过注释区），经 `webDesignReview.assets` 读回同目录的 `.css`/`.js` 内联成 `<style>`/`<script>`，图片转 `data:` URL。`/api/web-design/preview` 路由只在 web 端注册，**桌面端走 IPC、没有 `connection` 服务**，所以路由不能作为主路径。**`inject` 不得包含 `connection`**——Cordis 会因服务缺失让整个插件不加载，连 Remote 都没有，预览与保存一起失效（已实测）。注释区原样保留，Save to file 会写回。注入的帧 chrome 颜色是字面量，是本仓 CSS 规范的已知例外，不要把 `--dsw-*` 写进去（会解析成空值）。
 8. **悬停不进渲染路径**：`HtmlDesignBody` 显式忽略 `hover`，由 `tests/client-render-cost.spec.ts` 守住；滚动上报与回放的任一侧消息处理被删，滚动保留就静默失效。
 9. **在预览里改完必须点 Save to file**，产物才会变；未保存时改动只在 sidecar 与帧里。
 10. **发版 = 改版本号 + 构建 + 提交产物 + 打 tag**，别人按 tag 安装，`master` 上的临时提交不会被他们拿到。

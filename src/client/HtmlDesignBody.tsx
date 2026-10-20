@@ -21,8 +21,9 @@ import { createPortal } from 'react-dom'
 import { Button, Input, Tag, Tooltip, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DocumentPreviewProps } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/client'
 import type { InjectFace, PropsLocale, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { DesignAnnotationDocument, DesignApplyRequest, DesignApplyResult, DesignFileRef, DesignReadResult, ElementCommentAnchor, ElementEdit } from '../types.ts'
-import { buildPreviewDocument } from './document.ts'
+import type { DesignAnnotationDocument, DesignApplyRequest, DesignApplyResult, DesignAsset, DesignFileRef, DesignReadResult, ElementCommentAnchor, ElementEdit } from '../types.ts'
+import { baseFor, buildPreviewDocument, decodeSource, inlineSiblings, siblingReferences, withHead } from './document.ts'
+import { previewUrlFor } from './preview.ts'
 import { CHANNEL } from './frame-runtime.ts'
 import type { FrameAnchor, FrameToParent } from './frame-runtime.ts'
 import { createDesignStore } from './store.ts'
@@ -49,6 +50,8 @@ export interface HtmlDesignBodyInjected {
    * @returns the canonical Host path and stored document.
    */
   readonly loadReview: (file: DesignFileRef) => Promise<DesignReadResult>
+  /** Read the stylesheets and scripts this page refers to by relative path. */
+  readonly loadAssets: (file: DesignFileRef, references: readonly string[]) => Promise<readonly DesignAsset[]>
   /**
    * Persist the review for this document.
    * @param file - Session-scoped address of the previewed file.
@@ -146,6 +149,8 @@ interface SelectedSource {
 interface FileWriteState {
   readonly kind: 'idle' | 'saving' | 'saved' | 'partial' | 'failed'
   readonly detail: string
+  /** Set when some of a partial write were dropped because no source exists. */
+  readonly notInSource?: boolean
 }
 
 /**
@@ -197,7 +202,11 @@ function placeEditor(stage: HTMLElement, docked: boolean): EditorPlacement {
  * @returns the preview, or the loading and failure states.
  */
 export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
-  const { content, resourceAddress, useStore, loadReview, saveReview, applyToFile, fileRefOf, readEditorDock, writeEditorDock, actions, t } = props
+  const { content, resourceAddress, useStore, loadReview, loadAssets, saveReview, applyToFile, fileRefOf, readEditorDock, writeEditorDock, actions, t } = props
+  // Surface why a document renders without its neighbours. A failed review read
+  // leaves no canonical path, so relative references cannot be routed; the page
+  // still renders, but that degradation must be visible rather than silent.
+  const [routingNote, setRoutingNote] = useState<string | null>(null)
   const state = useStore(selector => selector)
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -217,7 +226,7 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
   const [deleting, setDeleting] = useState(false)
   const [deletions, setDeletions] = useState<readonly PendingDeletion[]>([])
   const deletionsRef = useRef<readonly PendingDeletion[]>([])
-  const pendingMove = useRef<{ readonly selector: string; readonly restore: Readonly<Record<string, string>> } | null>(null)
+  const pendingMove = useRef<{ readonly selector: string; readonly restore: Readonly<Record<string, string>>; readonly prior: Readonly<Record<string, string>> | null } | null>(null)
   // Text edits are held here rather than in the review store: they are a
   // source rewrite awaiting the explicit save, not review state to persist.
   const [textEdits, setTextEdits] = useState<Record<string, string>>({})
@@ -229,6 +238,8 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
   const [resolvedFile, setResolvedFile] = useState<{ readonly address: string; readonly path: string } | null>(null)
   /** Bumped to re-run the review read after a failed load. */
   const [loadAttempt, setLoadAttempt] = useState(0)
+  /** Text of the siblings this page refers to, keyed by the reference it used. */
+  const [assets, setAssets] = useState<ReadonlyMap<string, string>>(() => new Map())
   const editorScrollRef = useRef<HTMLDivElement | null>(null)
   const editorScrollTop = useRef(0)
   // Ids in a portaled panel are unique per mounted editor, not per document.
@@ -246,6 +257,14 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
    * closure to it without either.
    */
   const deleteSelectionRef = useRef<() => void>(() => {})
+  /**
+   * Stage one moved position, defined with the other persistence callbacks.
+   *
+   * The message listener is installed before those exist, and re-subscribing it
+   * on every document change would tear down the frame's wiring; a ref carries
+   * the latest closure instead.
+   */
+  const stageMoveRef = useRef<(edit: ElementEdit) => void>(() => {})
 
   useEffect(() => {
     if (locatorCopy === null) return
@@ -255,25 +274,60 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
 
   const fileRef = useMemo(() => fileRefOf(resourceAddress), [fileRefOf, resourceAddress])
   const hostPath = resolvedFile?.address === resourceAddress ? resolvedFile.path : undefined
-  const source = useMemo(
-    () => content.kind === 'bytes' ? buildPreviewDocument(content.data) : undefined,
-    [content],
-  )
+  // The reviewed file's directory on the Host asset route. A Blob document has
+  // no directory of its own, so every relative reference on the reviewed page
+  // (`href="proto.css"`) resolves to a URL that cannot exist unless the document
+  // itself carries this as its base. It is therefore folded into the source, not
+  // patched in afterwards: a base added after parsing cannot re-issue requests
+  // the parser already made.
+  const routedBase = useMemo(() => {
+    if (hostPath === undefined || fileRef === undefined) return undefined
+    const routed = previewUrlFor(fileRef.sessionId, hostPath)
+    return routed === undefined ? undefined : baseFor(routed)
+  }, [fileRef, hostPath])
+  /** Whether the Host has answered the review read, so a document's base is final. */
+  const loadSettled = !state.loading
+  const source = useMemo(() => {
+    if (content.kind !== 'bytes') return undefined
+    const document = buildPreviewDocument(content.data)
+    if (document === undefined) return document
+    // Siblings read from disk are inlined first: a Blob document has no
+    // directory, so a relative `href` would otherwise resolve nowhere.
+    const inlined = inlineSiblings(document, assets)
+    if (routedBase === undefined) return inlined
+    // A page that declares its own base keeps pointing where its author chose.
+    return /<base[\s>]/iu.test(inlined) ? inlined : withHead(inlined, `<base href="${routedBase}">`)
+  }, [content, assets, routedBase])
 
   useEffect(() => {
     if (source === undefined) return
+    // The first document is only published once the Host has reported whether a
+    // review exists, so the base this document carries is final. Publishing an
+    // earlier draft would mount a frame whose relative references cannot load
+    // and replace it moments later.
+    if (!loadSettled) return
     const url = URL.createObjectURL(new Blob([source], { type: 'text/html;charset=utf-8' }))
     setFrameResource({ source, url })
     return () => { URL.revokeObjectURL(url) }
-  }, [source])
+  }, [source, loadSettled])
 
-  /** Restore a dragged element when its dialog is discarded. */
+  /**
+   * Restore a dragged element when its dialog is discarded.
+   *
+   * The move was staged as an edit, so discarding has to undo both halves: the
+   * element goes back on screen, and the staged edit is dropped so the unsaved
+   * marker clears and Save to file has nothing of this drag left to write.
+   */
   const discardMove = useCallback(() => {
     const move = pendingMove.current
     if (move === null) return
     postToFrame(frameRef.current, { kind: 'style', selector: move.selector, declarations: move.restore })
     pendingMove.current = null
-  }, [])
+    // The drag was staged as an edit, so discarding it drops that edit too: the
+    // unsaved marker clears and Save to file has nothing of this drag left.
+    if (move.prior === null) actions.removeEdit(move.selector)
+    else actions.upsertEdit({ selector: move.selector, declarations: move.prior, updatedAt: new Date().toISOString() })
+  }, [actions])
 
   /** Adopt a frame selection; only an explicit edit gesture opens the dialog. */
   const selectAnchor = useCallback((anchor: FrameAnchor, openEditor: boolean) => {
@@ -360,6 +414,35 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
     return () => { window.removeEventListener('keydown', closeOnEscape) }
   }, [state.open, cancelEditor])
 
+  // Read the siblings this page refers to, so they can be inlined. This is the
+  // only path that works on both hosts: the desktop host speaks IPC and has no
+  // HTTP route registry to serve these files from instead.
+  useEffect(() => {
+    setAssets(new Map())
+    if (content.kind !== 'bytes' || fileRef === undefined) return
+    const decoded = decodeSource(content.data)
+    if (decoded === undefined) return
+    const references = siblingReferences(decoded)
+    if (references.length === 0) return
+    let active = true
+    void loadAssets(fileRef, references)
+      .then((results) => {
+        if (!active) return
+        const readable = new Map<string, string>()
+        for (const asset of results) {
+          if (asset.text !== null) readable.set(asset.reference, asset.text)
+        }
+        setAssets(readable)
+      })
+      .catch((error: unknown) => {
+        // A failed read leaves every reference unresolved, which is exactly the
+        // state the page was in before; the preview still renders.
+        if (!active) return
+        setRoutingNote(error instanceof Error ? error.message : String(error))
+      })
+    return () => { active = false }
+  }, [content, fileRef, loadAssets])
+
   // Resolve the Session path on the Host before enabling any file writes.
   useEffect(() => {
     setResolvedFile(null)
@@ -388,6 +471,7 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
       .then((result) => {
         if (!active) return
         setResolvedFile({ address: resourceAddress, path: result.path })
+        setRoutingNote(null)
         actions.load(result.document)
         actions.endLoad()
       })
@@ -396,7 +480,11 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
         setResolvedFile(null)
         actions.load(null)
         actions.endLoad()
-        setFileWrite({ kind: 'failed', detail: error instanceof Error ? error.message : String(error) })
+        const detail = error instanceof Error ? error.message : String(error)
+        setFileWrite({ kind: 'failed', detail })
+        // Without a canonical path the preview falls back to a Blob document,
+        // which has no directory: relative CSS, scripts and images cannot load.
+        setRoutingNote(detail)
       })
     return () => { active = false }
   }, [fileRef, resourceAddress, loadReview, actions, loadAttempt])
@@ -459,16 +547,31 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
         case 'edit':
           if (message.anchor !== undefined) selectAnchor(message.anchor, true)
           return
-        case 'move':
+        case 'move': {
           if (message.anchor === undefined || message.declarations === undefined || message.restore === undefined || message.selector === undefined) return
-          if (state.selectedSelector !== message.selector || !state.open) return
+          // A drag is accepted for whatever element the reviewer has selected,
+          // whether or not the editor dialog is open. The frame has already moved
+          // the element on screen, so the move becomes a staged edit the same way
+          // a deletion does: it shows as unsaved and Save to file writes it. No
+          // dialog is opened, because moving is a gesture of its own, not the
+          // start of a style edit.
+          if (state.selectedSelector !== message.selector) return
+          const selector = message.selector
+          const existing = state.document?.edits.find(edit => edit.selector === selector)
           if (pendingMove.current === null) {
-            pendingMove.current = { selector: message.selector, restore: message.restore }
+            // The position the element had before this drag, so discarding can
+            // put the staged edit back exactly as it was.
+            pendingMove.current = { selector, restore: message.restore, prior: existing?.declarations ?? null }
           }
+          const declarations = { ...existing?.declarations, ...message.declarations }
           actions.select(toAnchor(message.anchor))
+          // The dialog, when it is open, drafts the same declarations; keeping it
+          // in step means its Save writes what the drag already staged instead of
+          // deciding nothing changed.
           setDraftStyle(current => ({ ...current, ...message.declarations }))
-          setFileWrite({ kind: 'idle', detail: '' })
+          stageMoveRef.current({ selector, declarations, updatedAt: new Date().toISOString() })
           return
+        }
         case 'removeResult': {
           if (typeof message.requestId !== 'string' || typeof message.selector !== 'string') return
           const request = deletionRequest.current
@@ -504,7 +607,7 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
     }
     window.addEventListener('message', listener)
     return () => { window.removeEventListener('message', listener) }
-  }, [actions, closeEditor, selectAnchor, source, state.mode, state.document, state.reloadToken, state.selectedSelector, state.open, textEdits, t])
+  }, [actions, closeEditor, routedBase, selectAnchor, source, state.mode, state.document, state.reloadToken, state.selectedSelector, state.open, textEdits, t])
 
   /** Write the current review to the Host. */
   const persist = useCallback(async (next: DesignAnnotationDocument) => {
@@ -530,6 +633,21 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
       updatedAt: edit.updatedAt,
     }
   }, [state.document])
+
+  /**
+   * Record one moved position as a staged edit.
+   *
+   * A drag stages exactly like a deletion: it shows as unsaved and Save to file
+   * is what writes it, so the review sidecar is deliberately left alone here.
+   * Writing it on every drag would report the move as saved before the artifact
+   * had changed.
+   * @param edit - the selector and its moved declarations.
+   */
+  stageMoveRef.current = (edit: ElementEdit): void => {
+    actions.upsertEdit(edit)
+    editRevision.current += 1
+    setFileWrite({ kind: 'idle', detail: '' })
+  }
 
   const saveSelection = useCallback(() => {
     const selector = state.selectedSelector
@@ -642,7 +760,27 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
         }
         if (result.skipped.length > 0 || missingDeletions.length > 0) {
           const missed = [...result.skipped.map(entry => entry.selector), ...missingDeletions.map(deletion => deletion.selector)]
-          setFileWrite({ kind: 'partial', detail: missed.join(', ') })
+          // A selector the Host cannot locate will never locate itself: retrying
+          // it on the next Save reproduces the same report forever. Drop those
+          // edits so the reviewer's other work can be written, and say which
+          // ones were left out.
+          const notInSource = new Set(result.skipped
+            .filter(entry => entry.reason === 'element not found in source')
+            .map(entry => entry.selector))
+          if (notInSource.size > 0) {
+            const document = documentRef.current
+            if (document !== null) {
+              actions.removeEdits([...notInSource])
+              void persist({
+                ...document,
+                edits: document.edits.filter(edit => !notInSource.has(edit.selector)),
+                updatedAt: new Date().toISOString(),
+              })
+            }
+            setTextEdits(current => Object.fromEntries(Object.entries(current)
+              .filter(([selector]) => !notInSource.has(selector))))
+          }
+          setFileWrite({ kind: 'partial', detail: missed.join(', '), notInSource: notInSource.size > 0 })
           return
         }
         setFileWrite({ kind: 'saved', detail: String(result.bytes) })
@@ -789,6 +927,16 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
 
       <Notice state={state} fileWrite={fileWrite} resolved={resolvedFile !== null} retry={retryAction === null ? undefined : retry} t={t} />
 
+      {routingNote !== null && source !== undefined && routedBase === undefined && (
+        // The page is shown from its own bytes, but the stylesheet, scripts and
+        // images beside it cannot be reached without a canonical path. Say so
+        // where the missing styles would otherwise look like a broken file.
+        <p className={css.status} role="status" data-html-design-routing={routingNote}>
+          <span className={css.statusTitle}>{t('relativeAssetsUnavailable')}</span>
+          <span className={css.statusHint}>{t('relativeAssetsUnavailableHint')}</span>
+        </p>
+      )}
+
       <div className={css.workspace}>
         <div ref={stageRef} className={css.stage} data-html-design-stage>
           <iframe
@@ -796,10 +944,14 @@ export function HtmlDesignBody(props: HtmlDesignBodyProps): ReactNode {
             ref={frameRef}
             className={css.frame}
             src={frameResource.url}
-            // Scripts run so the injected runtime can observe and apply edits;
-            // omitting allow-same-origin gives this Blob document an opaque
-            // origin, so the reviewed page cannot reach this application.
-            sandbox="allow-scripts allow-forms allow-popups allow-modals"
+            // Scripts run so the injected runtime can observe and apply edits.
+            // `allow-same-origin` is required for any of the reviewed page's own
+            // relative references to load: the Host asset route authenticates
+            // with the page's session cookie, which a sandboxed opaque origin
+            // does not send. The cost is that the reviewed page shares this
+            // application's origin, so it is confined by the route (read-only,
+            // workspace-only) rather than by the sandbox.
+            sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin"
             title={t('frame')}
             data-html-design-preview
             data-frame-mode-ready={frameInteractive ? 'true' : 'false'}
@@ -958,7 +1110,7 @@ function Notice(props: {
   } else if (fileWrite.kind === 'partial') {
     tone = 'warning'
     text = `${t('filePartial')}: ${fileWrite.detail}`
-    hint = t('filePartialHint')
+    hint = fileWrite.notInSource === true ? t('fileNotInSource') : t('filePartialHint')
   } else if (fileWrite.kind === 'saved') {
     tone = 'success'
     text = t('fileSaved')

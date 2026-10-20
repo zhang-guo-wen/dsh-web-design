@@ -154,3 +154,21 @@ export interface DesignApplyResult {
   /** Whether the rewrite changed the file at all. */
   readonly changed: boolean
 }
+
+/** Request for the stylesheets and scripts one previewed page refers to. */
+export interface DesignAssetsRequest {
+  /** Session-scoped preview address of the HTML file that declares them. */
+  readonly file: DesignFileRef
+  /** Relative references exactly as the page wrote them, each a sibling file. */
+  readonly references: readonly string[]
+}
+
+/** One sibling file returned for inlining into the preview document. */
+export interface DesignAsset {
+  /** The reference this answers, so the caller can match it to its element. */
+  readonly reference: string
+  /** Text content, or `null` when the file could not be read. */
+  readonly text: string | null
+  /** Why the file could not be read; present exactly when `text` is `null`. */
+  readonly reason?: string
+}

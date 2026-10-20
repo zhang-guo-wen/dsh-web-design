@@ -13,7 +13,7 @@
 // The measurement is a jsdom measurement. It proves the commit count, not
 // frame timings on a real browser.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { Profiler, createElement, useSyncExternalStore } from 'react'
 import { HtmlDesignBody } from '../src/client/HtmlDesignBody.tsx'
 import type { HtmlDesignBodyProps } from '../src/client/HtmlDesignBody.tsx'
@@ -39,7 +39,7 @@ interface Commit {
  * Mount the preview under a Profiler and hover distinct elements.
  * @returns the commits React reported and the measured wall time of the hover run.
  */
-function measureHover(): { readonly commits: readonly Commit[]; readonly wallMs: number } {
+async function measureHover(): Promise<{ readonly commits: readonly Commit[]; readonly wallMs: number }> {
   const store = createDesignStore(PATH).create()
   const props = {
     content: { kind: 'bytes', data: new TextEncoder().encode('<!doctype html><html><body><h1 id="headline">Original heading</h1></body></html>') },
@@ -67,10 +67,13 @@ function measureHover(): { readonly commits: readonly Commit[]; readonly wallMs:
     },
     createElement(HtmlDesignBody, props),
   ))
-  const frame = view.container.querySelector('iframe[data-html-design-preview]')
-  if (!(frame instanceof HTMLIFrameElement) || frame.contentWindow === null) {
-    throw new Error('HTML preview frame did not mount')
-  }
+  const frame = await waitFor(() => {
+    const mounted = view.container.querySelector('iframe[data-html-design-preview]')
+    if (!(mounted instanceof HTMLIFrameElement) || mounted.contentWindow === null) {
+      throw new Error('HTML preview frame has not mounted yet')
+    }
+    return mounted
+  })
   const afterMount = commits.length
   const started = performance.now()
   for (let index = 0; index < HOVER_TARGETS; index += 1) {
@@ -108,8 +111,8 @@ afterEach(() => {
 })
 
 describe('preview render cost', () => {
-  it('commits nothing while the pointer moves across elements', () => {
-    const { commits, wallMs } = measureHover()
+  it('commits nothing while the pointer moves across elements', async () => {
+    const { commits, wallMs } = await measureHover()
     const total = commits.reduce((sum, commit) => sum + commit.duration, 0)
     // Reported rather than asserted: jsdom commit durations are not browser frame times.
     console.log(
